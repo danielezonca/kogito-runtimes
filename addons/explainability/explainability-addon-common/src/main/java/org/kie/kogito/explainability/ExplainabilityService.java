@@ -19,9 +19,12 @@ package org.kie.kogito.explainability;
 import org.kie.kogito.Application;
 import org.kie.kogito.explainability.model.PredictInput;
 import org.kie.kogito.explainability.model.PredictOutput;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 import static java.util.Collections.singletonList;
 import static java.util.stream.Collectors.toList;
@@ -29,19 +32,35 @@ import static java.util.stream.Collectors.toList;
 public class ExplainabilityService {
 
     public static final ExplainabilityService INSTANCE = new ExplainabilityService(singletonList(new DecisionExplainabilityResourceExecutor()));
+    private static final Logger logger = LoggerFactory.getLogger(ExplainabilityService.class);
 
-    private Collection<ExplainabilityResourceExecutor> executors;
+    private final Collection<ExplainabilityResourceExecutor> executors;
 
     public ExplainabilityService(Collection<ExplainabilityResourceExecutor> executors) {
         this.executors = executors;
     }
 
     public List<PredictOutput> processRequest(Application application, List<PredictInput> predictInputs) {
-        return predictInputs.stream().map(predictInput -> executors.stream()
-                .filter(r -> r.acceptRequest(predictInput))
-                .map(r -> r.processRequest(application, predictInput))
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Malformed resourceType " + predictInput.getModelIdentifier().getResourceType())))
+        return predictInputs.stream()
+                .map(predictInput -> tryExecute(application, predictInput))
+                .filter(Optional::isPresent)
+                .map(Optional::get)
                 .collect(toList());
+    }
+
+    protected Optional<PredictOutput> tryExecute(Application application, PredictInput predictInput) {
+        try {
+            Optional<PredictOutput> optionalPredictOutput = executors.stream()
+                    .filter(r -> r.acceptRequest(predictInput))
+                    .map(r -> r.processRequest(application, predictInput))
+                    .findFirst();
+            if(!optionalPredictOutput.isPresent()) {
+                logger.error("Unsupported resourceType {}", predictInput.getModelIdentifier().getResourceType());
+            }
+            return optionalPredictOutput;
+        } catch (Exception e) {
+            logger.error(e.getMessage(), e);
+        }
+        return Optional.empty();
     }
 }

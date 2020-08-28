@@ -70,8 +70,8 @@ public class DecisionExplainabilityResourceExecutorTest {
         ModelIdentifier notADMNModelIdentifier = new ModelIdentifier("notAdmn", String.format("%s%s%s", "namespace", RESOURCE_ID_SEPARATOR, "name"));
         ModelIdentifier DMNModelIdentifier = new ModelIdentifier("dmn", String.format("%s%s%s", "namespace", RESOURCE_ID_SEPARATOR, "name"));
 
-        PredictInput notADMNModelPredictInput = new PredictInput(notADMNModelIdentifier, null);
-        PredictInput DMNModelPredictInput = new PredictInput(DMNModelIdentifier, null);
+        PredictInput notADMNModelPredictInput = new PredictInput("pi1", notADMNModelIdentifier, null);
+        PredictInput DMNModelPredictInput = new PredictInput("pi2", DMNModelIdentifier, null);
         Assertions.assertFalse(executor.acceptRequest(notADMNModelPredictInput));
         Assertions.assertTrue(executor.acceptRequest(DMNModelPredictInput));
     }

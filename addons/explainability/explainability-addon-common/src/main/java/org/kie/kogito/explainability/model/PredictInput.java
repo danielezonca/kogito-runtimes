@@ -24,17 +24,30 @@ import java.util.Map;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class PredictInput {
 
+    @JsonProperty("id")
+    private String id;
+
     @JsonProperty("modelIdentifier")
     private ModelIdentifier modelIdentifier;
 
     @JsonProperty("request")
     private Map<String, Object> request;
 
-    public PredictInput(){}
+    protected PredictInput(){
+    }
 
-    public PredictInput(ModelIdentifier modelIdentifier, Map<String, Object> request) {
+    public PredictInput(String id, ModelIdentifier modelIdentifier, Map<String, Object> request) {
+        this.id = id;
         this.modelIdentifier = modelIdentifier;
         this.request = request;
+    }
+
+    public String getId() {
+        return id;
+    }
+
+    public void setId(String id) {
+        this.id = id;
     }
 
     public ModelIdentifier getModelIdentifier() {

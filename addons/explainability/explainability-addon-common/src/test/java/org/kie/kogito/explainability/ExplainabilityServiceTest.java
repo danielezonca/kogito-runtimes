@@ -19,6 +19,7 @@ package org.kie.kogito.explainability;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.kie.dmn.api.core.DMNRuntime;
+import org.kie.kogito.Application;
 import org.kie.kogito.StaticApplication;
 import org.kie.kogito.decision.DecisionModels;
 import org.kie.kogito.dmn.DMNKogito;
@@ -32,6 +33,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static java.util.Arrays.asList;
+import static java.util.Collections.emptyMap;
 import static java.util.Collections.singletonList;
 import static org.kie.kogito.explainability.model.ModelIdentifier.RESOURCE_ID_SEPARATOR;
 
@@ -41,42 +44,55 @@ public class ExplainabilityServiceTest {
     public static final String MODEL_NAMESPACE = "https://github.com/kiegroup/drools/kie-dmn/_A4BCA8B8-CF08-433F-93B2-A2598F19ECFF";
     public static final String MODEL_NAME = "Traffic Violation";
 
-    final static String TEST_EXECUTION_ID = "test";
-    final static DMNRuntime genericDMNRuntime = DMNKogito.createGenericDMNRuntime(new InputStreamReader(
+    private static final String TEST_EXECUTION_ID = "test";
+    private static final DMNRuntime genericDMNRuntime = DMNKogito.createGenericDMNRuntime(new InputStreamReader(
             ExplainabilityServiceTest.class.getResourceAsStream(MODEL_RESOURCE)
     ));
-    final static DmnDecisionModel decisionModel = new DmnDecisionModel(genericDMNRuntime, MODEL_NAMESPACE, MODEL_NAME, () -> TEST_EXECUTION_ID);
+    private static final DmnDecisionModel decisionModel = new DmnDecisionModel(genericDMNRuntime, MODEL_NAMESPACE, MODEL_NAME, () -> TEST_EXECUTION_ID);
+    private static final ExplainabilityService service = ExplainabilityService.INSTANCE;
+    private static final DecisionModels decisionModels = (namespace, name) -> {
+        if (MODEL_NAMESPACE.equals(namespace) && MODEL_NAME.equals(name)) {
+            return decisionModel;
+        }
+        throw new RuntimeException("Model not found.");
+    };
+    private static final Application application = new StaticApplication(null, null, null, decisionModels, null);
 
     @Test
     public void testPerturbedExecution() {
-
-        DecisionModels decisionModels = (namespace, name) -> {
-            if (MODEL_NAMESPACE.equals(namespace) && MODEL_NAME.equals(name)) {
-                return decisionModel;
-            }
-            throw new RuntimeException("Model not found.");
-        };
-
         Map<String, Object> perturbedRequest = createRequest();
         PredictInput predictInput = new PredictInput(
+                "pi1",
                 new ModelIdentifier("dmn", String.format("%s%s%s", MODEL_NAMESPACE, RESOURCE_ID_SEPARATOR, MODEL_NAME)),
                 perturbedRequest);
-        StaticApplication application = new StaticApplication(null, null, null, decisionModels, null);
 
-        ExplainabilityService explainabilityService = ExplainabilityService.INSTANCE;
-        List<PredictOutput> predictOutputs = explainabilityService.processRequest(application, singletonList(predictInput));
+        List<PredictOutput> predictOutputs = service.processRequest(application, singletonList(predictInput));
 
         Assertions.assertEquals(1, predictOutputs.size());
-        PredictOutput predictOutput = predictOutputs.get(0);
+        checkResult(predictInput, predictOutputs.get(0));
+    }
 
-        Assertions.assertNotNull(predictOutput);
-        Assertions.assertNotNull(predictOutput.getResult());
+    @Test
+    public void testPerturbedExecutionBrokenInputs() {
+        PredictInput predictInput = new PredictInput(
+                "pi1",
+                new ModelIdentifier("dmn", String.format("%s%s%s", MODEL_NAMESPACE, RESOURCE_ID_SEPARATOR, MODEL_NAME)),
+                createRequest());
 
-        Map<String, Object> perturbedResult = predictOutput.getResult();
-        Assertions.assertTrue(perturbedResult.containsKey("Should the driver be suspended?"));
-        Assertions.assertEquals("No", perturbedResult.get("Should the driver be suspended?"));
-        Assertions.assertTrue(perturbedResult.containsKey("Fine"));
-        Assertions.assertNull(perturbedResult.get("Fine"));
+        PredictInput unsupportedResourceType = new PredictInput(
+                "pi2",
+                new ModelIdentifier("unsupported", String.format("%s%s%s", MODEL_NAMESPACE, RESOURCE_ID_SEPARATOR, MODEL_NAME)),
+                emptyMap());
+
+        PredictInput unknownModel = new PredictInput(
+                "pi3",
+                new ModelIdentifier("dmn", "unknown:model"),
+                emptyMap());
+
+        List<PredictOutput> predictOutputs = service.processRequest(application, asList(predictInput, unsupportedResourceType, unknownModel));
+
+        Assertions.assertEquals(1, predictOutputs.size());
+        checkResult(predictInput, predictOutputs.get(0));
     }
 
     private Map<String, Object> createRequest() {
@@ -94,5 +110,18 @@ public class ExplainabilityServiceTest {
         contextVariables.put("Violation", violation);
 
         return contextVariables;
+    }
+
+    private void checkResult(PredictInput predictInput, PredictOutput predictOutput) {
+        Assertions.assertNotNull(predictOutput);
+        Assertions.assertNotNull(predictOutput.getResult());
+
+        Assertions.assertEquals(predictInput.getId(), predictOutput.getId());
+
+        Map<String, Object> perturbedResult = predictOutput.getResult();
+        Assertions.assertTrue(perturbedResult.containsKey("Should the driver be suspended?"));
+        Assertions.assertEquals("No", perturbedResult.get("Should the driver be suspended?"));
+        Assertions.assertTrue(perturbedResult.containsKey("Fine"));
+        Assertions.assertNull(perturbedResult.get("Fine"));
     }
 }

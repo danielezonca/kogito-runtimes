@@ -60,7 +60,7 @@ public class DecisionExplainabilityResourceExecutor implements ExplainabilityRes
                 namespaceAndName[0],
                 namespaceAndName[1],
                 dmnResult);
-        return new PredictOutput(predictInput.getModelIdentifier(), result.getDmnContext());
+        return new PredictOutput(predictInput.getId(), predictInput.getModelIdentifier(), result.getDmnContext());
     }
 
     private String[] extractNamespaceAndName(String resourceId) {
