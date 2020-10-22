@@ -18,6 +18,7 @@ package org.kie.kogito.pmml;
 
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -50,10 +51,22 @@ public class PMMLKogito {
      * Internal Utility class.<br/>
      * Use {@link Application#predictionModels()} of Kogito API to programmatically access PMML assets and evaluate
      * PMML decisions.
+     *
+     * @param pmmlPaths
+     * @return
      */
     public static Map<KieBase, KieRuntimeFactory> createKieRuntimeFactories(String... pmmlPaths) {
-        Stream<Resource> resources = Stream.of(pmmlPaths).map(FileSystemResource::new);
-        return KieRuntimeFactoryBuilder.fromResources(resources);
+        return commonCreateKieRuntimeFactory(KieRuntimeFactoryBuilder::fromResources, pmmlPaths);
+    }
+
+    /**
+     * This method is equivalents to createKieRuntimeFactories but it also compiles the PMML models in memory instead of
+     * just load it. It is used by Kogito Test Scenario to load and run the tests
+     * @param pmmlPaths
+     * @return
+     */
+    public static Map<KieBase, KieRuntimeFactory> createKieRuntimeFactoriesWithInMemoryCompilation(String... pmmlPaths) {
+        return commonCreateKieRuntimeFactory(KieRuntimeFactoryBuilder::fromResourcesWithInMemoryCompilation, pmmlPaths);
     }
 
     public static KiePMMLModel modelByName(PMMLRuntime pmmlRuntime, String modelName) {
@@ -73,6 +86,13 @@ public class PMMLKogito {
     public static PMML4Result evaluate(PMMLRuntime pmmlRuntime, String modelName, Map<String, Object> pmmlContext) {
         final PMMLRequestData pmmlRequestData = getPMMLRequestData(modelName, pmmlContext);
         return pmmlRuntime.evaluate(modelName, new PMMLContextImpl(pmmlRequestData));
+    }
+
+    private static Map<KieBase, KieRuntimeFactory> commonCreateKieRuntimeFactory(
+            final Function<Stream<Resource>, Map<KieBase, KieRuntimeFactory>> factory,
+            final String... pmmlPaths) {
+        Stream<Resource> resources = Stream.of(pmmlPaths).map(FileSystemResource::new);
+        return factory.apply(resources);
     }
 
 }

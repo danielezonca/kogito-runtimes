@@ -48,6 +48,7 @@ import org.kie.kogito.codegen.GeneratedFile;
 import org.kie.kogito.codegen.GeneratedFile.Type;
 import org.kie.kogito.codegen.GeneratorContext;
 import org.kie.kogito.codegen.decision.DecisionCodegen;
+import org.kie.kogito.codegen.io.CollectedResource;
 import org.kie.kogito.codegen.prediction.PredictionCodegen;
 import org.kie.kogito.codegen.process.ProcessCodegen;
 import org.kie.kogito.codegen.rules.IncrementalRuleCodegen;
@@ -232,7 +233,7 @@ public class GenerateModelMojo extends AbstractKieMojo {
         boolean usePersistence = persistence || hasClassOnClasspath(project, "org.kie.kogito.persistence.KogitoProcessInstancesFactory");
         boolean useMonitoring = hasClassOnClasspath(project, "org.kie.kogito.monitoring.rest.MetricsResource");
         boolean useTracing = hasClassOnClasspath(project, "org.kie.kogito.tracing.decision.DecisionTracingListener");
-        boolean useKnativeEventing = hasClassOnClasspath(project, "org.kie.kogito.events.knative.ce.http.HttpRequestConverter");
+        boolean useKnativeEventing = hasClassOnClasspath(project, "org.kie.kogito.events.knative.ce.extensions.KogitoProcessExtension");
 
         AddonsConfig addonsConfig = new AddonsConfig()
                 .withPersistence(usePersistence)
@@ -259,26 +260,29 @@ public class GenerateModelMojo extends AbstractKieMojo {
         // if not null, the property has been overridden, and we should use the specified value
 
         if (generateProcesses()) {
-            appGen.withGenerator(ProcessCodegen.ofPath(kieSourcesDirectory.toPath()))
+            appGen.withGenerator(ProcessCodegen.ofCollectedResources(CollectedResource.fromDirectory(kieSourcesDirectory.toPath())))
                     .withAddons(addonsConfig)
                     .withClassLoader(projectClassLoader);
         }
 
         if (generateRules()) {
             boolean useRestServices = hasClassOnClasspath(project, "javax.ws.rs.Path");
-            appGen.withGenerator(IncrementalRuleCodegen.ofPath(kieSourcesDirectory.toPath()))
+            appGen.withGenerator(IncrementalRuleCodegen.ofCollectedResources(CollectedResource.fromDirectory(kieSourcesDirectory.toPath())))
                     .withKModule(getKModuleModel())
                     .withClassLoader(projectClassLoader)
                     .withAddons(addonsConfig)
                     .withRestServices(useRestServices);
         }
 
-        appGen.withGenerator(PredictionCodegen.ofPath(kieSourcesDirectory.toPath()))
+        boolean isJPMMLAvailable = hasClassOnClasspath(project, "org.kie.dmn.jpmml.DMNjPMMLInvocationEvaluator");
+        appGen.withGenerator(PredictionCodegen.ofCollectedResources(isJPMMLAvailable, CollectedResource.fromDirectory(kieSourcesDirectory.toPath())))
                 .withAddons(addonsConfig);
 
         if (generateDecisions()) {
-            appGen.withGenerator(DecisionCodegen.ofPath(kieSourcesDirectory.toPath()))
-                    .withAddons(addonsConfig);
+            appGen.withGenerator(DecisionCodegen.ofCollectedResources(CollectedResource.fromDirectory(kieSourcesDirectory.toPath())))
+                  .withAddons(addonsConfig)
+                  .withClassLoader(projectClassLoader)
+                  .withPCLResolverFn(x -> hasClassOnClasspath(project, x));
         }
 
         return appGen;
@@ -287,10 +291,8 @@ public class GenerateModelMojo extends AbstractKieMojo {
     private KieModuleModel getKModuleModel() throws IOException {
         if (!project.getResources().isEmpty()) {
             Path moduleXmlPath = Paths.get(project.getResources().get(0).getDirectory()).resolve(KieModuleModelImpl.KMODULE_JAR_PATH);
-            try {
-                return KogitoKieModuleModelImpl.fromXML(
-                        new ByteArrayInputStream(
-                                Files.readAllBytes(moduleXmlPath)));
+            try (ByteArrayInputStream bais = new ByteArrayInputStream(Files.readAllBytes(moduleXmlPath))) {
+                return KogitoKieModuleModelImpl.fromXML(bais);
             } catch (NoSuchFileException e) {
                 getLog().debug("kmodule.xml is missing. Returned the default value.", e);
                 return new KogitoKieModuleModelImpl();

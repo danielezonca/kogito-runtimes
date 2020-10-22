@@ -18,8 +18,10 @@ package org.kie.kogito.codegen.process;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 
 import javax.lang.model.SourceVersion;
 
@@ -37,7 +39,6 @@ import com.github.javaparser.ast.expr.AssignExpr;
 import com.github.javaparser.ast.expr.AssignExpr.Operator;
 import com.github.javaparser.ast.expr.CastExpr;
 import com.github.javaparser.ast.expr.FieldAccessExpr;
-import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.ObjectCreationExpr;
@@ -48,14 +49,15 @@ import com.github.javaparser.ast.expr.ThisExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.ReturnStmt;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
-import com.github.javaparser.ast.type.UnknownType;
 import org.drools.compiler.compiler.io.memory.MemoryFileSystem;
+import org.drools.core.util.KieFunctions;
 import org.drools.core.util.StringUtils;
 import org.jbpm.compiler.canonical.ProcessMetaData;
 import org.jbpm.compiler.canonical.TriggerMetaData;
+import org.jbpm.process.core.datatype.impl.type.ObjectDataType;
+import org.jbpm.ruleflow.core.RuleFlowProcessFactory;
 import org.kie.api.definition.process.Process;
 import org.kie.api.definition.process.WorkflowProcess;
-import org.kie.api.runtime.process.WorkItemHandler;
 import org.kie.api.runtime.process.WorkflowProcessInstance;
 import org.kie.kogito.Model;
 import org.kie.kogito.codegen.AddonsConfig;
@@ -63,6 +65,8 @@ import org.kie.kogito.codegen.BodyDeclarationComparator;
 import org.kie.kogito.codegen.di.DependencyInjectionAnnotator;
 import org.kie.kogito.process.ProcessInstancesFactory;
 import org.kie.kogito.process.impl.AbstractProcess;
+
+import static com.github.javaparser.StaticJavaParser.parseClassOrInterfaceType;
 
 /**
  * Generates the Process&lt;T&gt; container
@@ -74,11 +78,13 @@ public class ProcessGenerator {
     
     private static final String BUSINESS_KEY = "businessKey";
     private static final String CREATE_MODEL = "createModel";
+    private static final String APPLICATION = "app";
     private static final String WPI = "wpi";
+    private static final String FACTORY = "factory";
 
     private final String packageName;
     private final WorkflowProcess process;
-    private final ProcessExecutableModelGenerator processGenerator;
+    private final ProcessExecutableModelGenerator processExecutable;
     private final String typeName;
     private final String modelTypeName;
     private final String generatedFilePath;
@@ -91,18 +97,17 @@ public class ProcessGenerator {
 
     private List<CompilationUnit> additionalClasses = new ArrayList<>();
 
-    public ProcessGenerator(
-            WorkflowProcess process,
-            ProcessExecutableModelGenerator processGenerator,
-            String typeName,
-            String modelTypeName,
-            String appCanonicalName) {
+    public ProcessGenerator(WorkflowProcess process,
+                            ProcessExecutableModelGenerator processGenerator,
+                            String typeName,
+                            String modelTypeName,
+                            String appCanonicalName) {
 
         this.appCanonicalName = appCanonicalName;
 
         this.packageName = process.getPackageName();
         this.process = process;
-        this.processGenerator = processGenerator;
+        this.processExecutable = processGenerator;
         this.typeName = typeName;
         this.modelTypeName = modelTypeName;        
         this.targetTypeName = typeName + "Process";
@@ -134,9 +139,9 @@ public class ProcessGenerator {
 
     public CompilationUnit compilationUnit() {
         CompilationUnit compilationUnit = new CompilationUnit(packageName);
-        compilationUnit.addImport("org.jbpm.process.core.datatype.impl.type.ObjectDataType");
-        compilationUnit.addImport("org.jbpm.ruleflow.core.RuleFlowProcessFactory");
-        compilationUnit.addImport("org.drools.core.util.KieFunctions");
+        compilationUnit.addImport(ObjectDataType.class);
+        compilationUnit.addImport(RuleFlowProcessFactory.class);
+        compilationUnit.addImport(KieFunctions.class);
         compilationUnit.getTypes().add(classDeclaration());
         return compilationUnit;
     }
@@ -156,6 +161,7 @@ public class ProcessGenerator {
                 .addModifier(Modifier.Keyword.PUBLIC)
                 .addParameter(modelTypeName, "value")
                 .setType(processInstanceFQCN)
+                .addAnnotation(Override.class)
                 .setBody(new BlockStmt()
                                  .addStatement(returnStmt));
         return methodDeclaration;
@@ -266,107 +272,57 @@ public class ProcessGenerator {
                 new ThisExpr(),
                 "createProcessRuntime");
     }
-    
-    private MethodDeclaration internalConfigure(ProcessMetaData processMetaData) {
-        BlockStmt body = new BlockStmt();
-        MethodDeclaration internalConfigure = new MethodDeclaration()
-                .setModifiers(Modifier.Keyword.PUBLIC)
-                .setType(targetTypeName)
-                .setName("configure")
-                .setBody(body);   
-        
-        // always call super.configure
-        body.addStatement(new MethodCallExpr(new SuperExpr(), "configure"));
 
-        if (!processMetaData.getGeneratedHandlers().isEmpty()) {
-            
-            processMetaData.getGeneratedHandlers().forEach((name, handler) -> {
-                ClassOrInterfaceDeclaration clazz = handler.findFirst(ClassOrInterfaceDeclaration.class).get();
-                if (useInjection()) {
-                                       
-                    annotator.withApplicationComponent(clazz);
-                    BlockStmt actionBody = new BlockStmt();
-                    LambdaExpr forachBody = new LambdaExpr(new Parameter(new UnknownType(), "h"), actionBody);
-                    MethodCallExpr forachHandler = new MethodCallExpr(new NameExpr("handlers"), "forEach");                    
-                    forachHandler.addArgument(forachBody);
-                    
-                    MethodCallExpr workItemManager = new MethodCallExpr(new NameExpr("services"), "getWorkItemManager");            
-                    MethodCallExpr registerHandler = new MethodCallExpr(workItemManager, "registerWorkItemHandler").addArgument(new MethodCallExpr(new NameExpr("h"), "getName")).addArgument(new NameExpr("h"));
-                    
-                    actionBody.addStatement(registerHandler);
-                    
-                    body.addStatement(forachHandler);
-                } else {
-                
-                    String packageName = handler.getPackageDeclaration().map(pd -> pd.getName().toString()).orElse("");
-                    String clazzName = clazz.getName().toString();
-                    
-                    MethodCallExpr workItemManager = new MethodCallExpr(new NameExpr("services"), "getWorkItemManager");            
-                    MethodCallExpr registerHandler = new MethodCallExpr(workItemManager, "registerWorkItemHandler").addArgument(new StringLiteralExpr(name)).addArgument(new ObjectCreationExpr(null, new ClassOrInterfaceType(null, packageName + "." + clazzName), NodeList.nodeList()));
-                    
-                    body.addStatement(registerHandler);
-                }
-                // annotate for injection or add constructor for initialization
-                handler.findAll(FieldDeclaration.class).forEach(fd -> {
-                    if (useInjection()) {
-                        annotator.withInjection(fd);
-                    } else {
-                        BlockStmt constructorBody = new BlockStmt();
-                        AssignExpr assignExpr = new AssignExpr(
-                                                               new FieldAccessExpr(new ThisExpr(), fd.getVariable(0).getNameAsString()),
-                                                               new ObjectCreationExpr().setType(fd.getVariable(0).getType().toString()),
-                                                               AssignExpr.Operator.ASSIGN);
-                        
-                        constructorBody.addStatement(assignExpr);
-                        clazz.addConstructor(Keyword.PUBLIC).setBody(constructorBody);
-                    }
-                });
-                
-                
-                additionalClasses.add(handler);
-            });
-        }
+    private Optional<MethodDeclaration> internalConfigure(ProcessMetaData processMetaData) {
         if (!processMetaData.getGeneratedListeners().isEmpty()) {
-            
+            BlockStmt body = new BlockStmt();
+            MethodDeclaration internalConfigure = new MethodDeclaration()
+                    .setModifiers(Modifier.Keyword.PUBLIC)
+                    .setType(targetTypeName)
+                    .setName("configure")
+                    .setBody(body);
+
+            // always call super.configure
+            body.addStatement(new MethodCallExpr(new SuperExpr(), "configure"));
             processMetaData.getGeneratedListeners().forEach(listener -> {
-                
                 ClassOrInterfaceDeclaration clazz = listener.findFirst(ClassOrInterfaceDeclaration.class).get();
-                String packageName = listener.getPackageDeclaration().map(pd -> pd.getName().toString()).orElse("");
-                String clazzName = clazz.getName().toString();
-                
-                MethodCallExpr eventSupport = new MethodCallExpr(new NameExpr("services"), "getEventSupport");            
-                MethodCallExpr registerListener = new MethodCallExpr(eventSupport, "addEventListener").addArgument(new ObjectCreationExpr(null, new ClassOrInterfaceType(null, packageName + "." + clazzName), NodeList.nodeList()));
-                
+                MethodCallExpr eventSupport = new MethodCallExpr(new NameExpr("services"), "getEventSupport");
+                MethodCallExpr registerListener = new MethodCallExpr(eventSupport, "addEventListener")
+                    .addArgument(
+                        new ObjectCreationExpr(
+                            null,
+                            new ClassOrInterfaceType(
+                                null,
+                                listener.getPackageDeclaration().map(pd -> pd.getName().toString()).orElse("") + "." +clazz.getName()),
+                            NodeList.nodeList()));
+
                 body.addStatement(registerListener);
-                
+
                 additionalClasses.add(listener);
             });
+            body.addStatement(new ReturnStmt(new ThisExpr()));
+            return Optional.of(internalConfigure);
         }
-        
-        body.addStatement(new ReturnStmt(new ThisExpr()));
-        
-        return internalConfigure;
+        return Optional.empty();
     }
     
-    private MethodDeclaration internalRegisterListeners(ProcessMetaData processMetaData) {
-        BlockStmt body = new BlockStmt();
-        MethodDeclaration internalRegisterListeners = new MethodDeclaration()
-                .setModifiers(Modifier.Keyword.PROTECTED)
-                .setType(void.class)
-                .setName("registerListeners")
-                .setBody(body);   
-                
+    private Optional<MethodDeclaration> internalRegisterListeners(ProcessMetaData processMetaData) {
         if (!processMetaData.getSubProcesses().isEmpty()) {
+            BlockStmt body = new BlockStmt();
+            MethodDeclaration internalRegisterListeners = new MethodDeclaration()
+                    .setModifiers(Modifier.Keyword.PROTECTED)
+                    .setType(void.class)
+                    .setName("registerListeners")
+                    .setBody(body);   
             
             for (Entry<String, String> subProcess : processMetaData.getSubProcesses().entrySet()) {
                 MethodCallExpr signalManager = new MethodCallExpr(new NameExpr("services"), "getSignalManager");
                 MethodCallExpr registerListener = new MethodCallExpr(signalManager, "addEventListener").addArgument(new StringLiteralExpr(subProcess.getValue())).addArgument(new NameExpr("completionEventListener"));
-                
                 body.addStatement(registerListener);
             }
+            return Optional.of(internalRegisterListeners);
         }
-        
-        return internalRegisterListeners;
+        return Optional.empty();
     }
 
     public static ClassOrInterfaceType processType(String canonicalName) {
@@ -380,113 +336,114 @@ public class ProcessGenerator {
 
     public ClassOrInterfaceDeclaration classDeclaration() {
         ClassOrInterfaceDeclaration cls = new ClassOrInterfaceDeclaration()
-                .setName(targetTypeName)
-                .setModifiers(Modifier.Keyword.PUBLIC);
+            .setName(targetTypeName)
+            .setModifiers(Modifier.Keyword.PUBLIC);
+        ProcessMetaData processMetaData = processExecutable.generate();
+        ConstructorDeclaration constructor = getConstructorDeclaration().addParameter(appCanonicalName, APPLICATION);
 
+        MethodCallExpr handlersCollection = new MethodCallExpr(new NameExpr("java.util.Arrays"), "asList");
+        MethodCallExpr superMethod = new MethodCallExpr(null, "super")
+                .addArgument(new NameExpr(APPLICATION))
+                .addArgument(handlersCollection);
+
+        if (addonsConfig.usePersistence()) {
+            constructor.addParameter(ProcessInstancesFactory.class.getCanonicalName(), FACTORY);
+            superMethod.addArgument(new NameExpr(FACTORY));
+        }
+        
+        constructor.setBody(new BlockStmt()
+                                    .addStatement(superMethod)
+                                    .addStatement(new MethodCallExpr("activate")));
+        
         if (useInjection()) {
             annotator.withNamedApplicationComponent(cls, process.getId());
-            
-            FieldDeclaration handlersInjectFieldDeclaration = new FieldDeclaration()
-                    .addVariable(new VariableDeclarator(new ClassOrInterfaceType(null, new SimpleName(annotator.multiInstanceInjectionType()), NodeList.nodeList(new ClassOrInterfaceType(null, WorkItemHandler.class.getCanonicalName()))), "handlers"));
-            annotator.withOptionalInjection(handlersInjectFieldDeclaration);
-            
-            cls.addMember(handlersInjectFieldDeclaration);
+            annotator.withEagerStartup(cls);
+            annotator.withInjection(constructor);
         }
 
+        Map<String, CompilationUnit> handlers = processMetaData.getGeneratedHandlers();
+        if (!handlers.isEmpty()) {
+            MethodCallExpr initMethodCall = new MethodCallExpr(null, "this").addArgument(new NameExpr(APPLICATION));
+            ConstructorDeclaration decl = getConstructorDeclaration()
+                    .addParameter(appCanonicalName, APPLICATION)
+                    .setBody(new BlockStmt().addStatement(initMethodCall));
+            if (addonsConfig.usePersistence()) {
+                initMethodCall.addArgument(new NameExpr(FACTORY));
+                decl.addParameter(ProcessInstancesFactory.class.getCanonicalName(), FACTORY);
+            }
+            cls.addMember(decl);
+
+            for (Entry<String, CompilationUnit> handler : handlers.entrySet()) {
+                String varName = handler.getKey().substring(handler.getKey().lastIndexOf('.') + 1);
+                varName = Character.toLowerCase(varName.charAt(0)) + varName.substring(1);
+                ClassOrInterfaceDeclaration handlerClazz =
+                        handler
+                            .getValue()
+                            .findFirst(ClassOrInterfaceDeclaration.class)
+                            .orElseThrow(
+                                         () -> new NoSuchElementException(
+                                             "Compilation unit doesn't contain a method declaration!"));
+                String clazzName =
+                        handler
+                            .getValue()
+                            .getPackageDeclaration()
+                            .map(pd -> pd.getName().toString() + '.' + handlerClazz.getName())
+                            .orElse(handlerClazz.getName().asString());
+
+                ClassOrInterfaceType clazzNameType = parseClassOrInterfaceType(clazzName);
+                Parameter parameter = new Parameter(clazzNameType, varName);
+                if (useInjection()) {
+                    annotator.withApplicationComponent(handlerClazz);
+                    annotator
+                        .withInjection(
+                                       handlerClazz
+                                           .getConstructors()
+                                           .stream()
+                                           .filter(c -> !c.getParameters().isEmpty())
+                                           .findFirst()
+                                           .orElseThrow(
+                                                        () -> new IllegalStateException(
+                                                            "Cannot find a non empty constructor to annotate in handler class " +
+                                                                                        handlerClazz)),true);
+                }
+             
+                initMethodCall
+                    .addArgument(
+                                 new ObjectCreationExpr(
+                                     null,
+                                     clazzNameType,
+                                     NodeList.nodeList()));
+
+                constructor.addParameter(parameter);
+                handlersCollection.addArgument(new NameExpr(varName));
+                additionalClasses.add(handler.getValue());
+            }
+        }
         String processInstanceFQCN = ProcessInstanceGenerator.qualifiedName(packageName, typeName);
-
-        FieldDeclaration fieldDeclaration = new FieldDeclaration()
-                .addVariable(new VariableDeclarator(new ClassOrInterfaceType(null, appCanonicalName), "app"));
-
-        ConstructorDeclaration constructorDeclaration = new ConstructorDeclaration()
-                .setName(targetTypeName)
-                .addModifier(Modifier.Keyword.PUBLIC)
-                .addParameter(appCanonicalName, "app")
-                .setBody(new BlockStmt()
-                                 // super(module.config().process())
-                                 .addStatement(new MethodCallExpr(null, "super")
-                                              .addArgument(
-                                                      new MethodCallExpr(
-                                                              new MethodCallExpr(new NameExpr("app"), "config"),
-                                                              "process")))
-                                 .addStatement(
-                                         new AssignExpr(new FieldAccessExpr(new ThisExpr(), "app"), new NameExpr("app"), AssignExpr.Operator.ASSIGN)));
-        
-        ConstructorDeclaration emptyConstructorDeclaration = new ConstructorDeclaration()
-                .setName(targetTypeName)
-                .addModifier(Modifier.Keyword.PUBLIC);
-        
-        if (useInjection()) {
-            annotator.withInjection(constructorDeclaration);
-        } else {
-        
-            emptyConstructorDeclaration
-                .setBody(new BlockStmt()
-                                 .addStatement(
-                                         new MethodCallExpr(null, "this").addArgument(new ObjectCreationExpr().setType(appCanonicalName))));
-        }
-        
-        MethodDeclaration createModelMethod = new MethodDeclaration()
-                .addModifier(Keyword.PUBLIC)
-                .setName(CREATE_MODEL)
-                .setType(modelTypeName)
-                .setBody(new BlockStmt()
-                         .addStatement(new ReturnStmt(new ObjectCreationExpr(null, 
-                                                                             new ClassOrInterfaceType(null, modelTypeName), 
-                                                                             NodeList.nodeList()))));               
-        
-        ProcessMetaData processMetaData = processGenerator.generate();
-
         cls.addExtendedType(abstractProcessType(modelTypeName))
-                .addMember(fieldDeclaration)
-                .addMember(emptyConstructorDeclaration)
-                .addMember(constructorDeclaration)
+                .addMember(constructor)
+                .addMember(getConstructorDeclaration())
                 .addMember(createInstanceMethod(processInstanceFQCN))
                 .addMember(createInstanceWithBusinessKeyMethod(processInstanceFQCN))
-                .addMember(createModelMethod)
+                .addMember(new MethodDeclaration()
+                                   .addModifier(Keyword.PUBLIC)
+                                   .setName(CREATE_MODEL)
+                                   .setType(modelTypeName)
+                                   .addAnnotation(Override.class)
+                                   .setBody(new BlockStmt()
+                                                    .addStatement(new ReturnStmt(new ObjectCreationExpr(null,
+                                                                                                        new ClassOrInterfaceType(null, modelTypeName),
+                                                                                                        NodeList.nodeList())))))
                 .addMember(createInstanceGenericMethod(processInstanceFQCN))
                 .addMember(createInstanceGenericWithBusinessKeyMethod(processInstanceFQCN))
                 .addMember(createInstanceGenericWithWorkflowInstanceMethod(processInstanceFQCN))
                 .addMember(createReadOnlyInstanceGenericWithWorkflowInstanceMethod(processInstanceFQCN))
-                .addMember(internalConfigure(processMetaData))
-                .addMember(internalRegisterListeners(processMetaData))
                 .addMember(process(processMetaData));
-        
-        if (addonsConfig.usePersistence()) {
-        
-            if (useInjection()) {
-                
-                MethodDeclaration injectProcessInstancesFactoryMethod = new MethodDeclaration()
-                        .addModifier(Keyword.PUBLIC)
-                        .setName("setProcessInstancesFactory")
-                        .setType(void.class)
-                        .addParameter(ProcessInstancesFactory.class.getCanonicalName(), "processInstancesFactory")
-                        .setBody(new BlockStmt()
-                                 .addStatement(new MethodCallExpr(new SuperExpr(), "setProcessInstancesFactory").addArgument(new NameExpr("processInstancesFactory"))));
-                annotator.withInjection(injectProcessInstancesFactoryMethod);
-                cls.addMember(injectProcessInstancesFactoryMethod);
-            } else {
-                MethodDeclaration injectProcessInstancesFactoryMethod = new MethodDeclaration()
-                        .addModifier(Keyword.PUBLIC)
-                        .setName("setProcessInstancesFactory")
-                        .setType(void.class)
-                        .addParameter(ProcessInstancesFactory.class.getCanonicalName(), "processInstancesFactory")
-                        .setBody(new BlockStmt()
-                                 .addStatement(new MethodCallExpr(new SuperExpr(), "setProcessInstancesFactory").addArgument(new ObjectCreationExpr(null, new ClassOrInterfaceType(null, "org.kie.kogito.persistence.KogitoProcessInstancesFactoryImpl"), NodeList.nodeList()))));
-                
-                cls.addMember(injectProcessInstancesFactoryMethod);
-            }
-               
-        }
-        
-        if (useInjection()) {
-                        
-            MethodDeclaration initMethod = annotator.withInitMethod(new MethodCallExpr(new ThisExpr(), "activate"));
-            
-            cls.addMember(initMethod);
-        }
-        
-        
+
+
+        internalConfigure(processMetaData).ifPresent(cls::addMember);
+        internalRegisterListeners(processMetaData).ifPresent(cls::addMember);
+
         if (!processMetaData.getSubProcesses().isEmpty()) {
             
             for (Entry<String, String> subProcess : processMetaData.getSubProcesses().entrySet()) {
@@ -501,21 +458,18 @@ public class ProcessGenerator {
                 } else {
                     // app.processes().processById()
                     MethodCallExpr initSubProcessField = new MethodCallExpr(
-                            new MethodCallExpr(new NameExpr("app"), "processes"),
+                            new MethodCallExpr(new NameExpr(APPLICATION), "processes"),
                             "processById").addArgument(new StringLiteralExpr(subProcess.getKey()));
                     
-                    subprocessFieldDeclaration
-                    .addVariable(new VariableDeclarator(modelType, fieldName));
-
-                    constructorDeclaration.getBody().addStatement(new AssignExpr(new FieldAccessExpr(new ThisExpr(), fieldName), new CastExpr(modelType, initSubProcessField), Operator.ASSIGN));
+                    subprocessFieldDeclaration.addVariable(new VariableDeclarator(modelType, fieldName));
+                    constructor.getBody().addStatement(new AssignExpr(new FieldAccessExpr(new ThisExpr(), fieldName), new CastExpr(modelType, initSubProcessField), Operator.ASSIGN));
                     
                 }
                 
                 cls.addMember(subprocessFieldDeclaration);
-                                
             }
         }
-        
+
         if (!processMetaData.getTriggers().isEmpty()) {
             
             for (TriggerMetaData trigger : processMetaData.getTriggers()) {
@@ -546,6 +500,12 @@ public class ProcessGenerator {
         }
         cls.getMembers().sort(new BodyDeclarationComparator());
         return cls;
+    }
+
+    private ConstructorDeclaration getConstructorDeclaration() {
+        return new ConstructorDeclaration()
+            .setName(targetTypeName)
+            .addModifier(Modifier.Keyword.PUBLIC);
     }
 
     public String generatedFilePath() {

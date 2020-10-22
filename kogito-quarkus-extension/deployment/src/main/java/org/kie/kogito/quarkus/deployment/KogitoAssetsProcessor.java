@@ -32,8 +32,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import javax.inject.Inject;
-
 import io.quarkus.arc.deployment.GeneratedBeanBuildItem;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
@@ -46,12 +44,11 @@ import io.quarkus.deployment.builditem.LiveReloadBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.NativeImageResourceBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ReflectiveHierarchyIgnoreWarningBuildItem;
-import io.quarkus.deployment.builditem.nativeimage.RuntimeInitializedClassBuildItem;
 import io.quarkus.deployment.index.IndexingUtil;
 import io.quarkus.deployment.pkg.builditem.CurateOutcomeBuildItem;
+import javax.inject.Inject;
 import org.drools.compiler.builder.impl.KogitoKieModuleModelImpl;
 import org.drools.compiler.compiler.io.memory.MemoryFileSystem;
-import org.drools.core.base.ClassFieldAccessorFactory;
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.CompositeIndex;
@@ -62,6 +59,7 @@ import org.jboss.jandex.Indexer;
 import org.jboss.jandex.MethodInfo;
 import org.jbpm.util.JsonSchemaUtil;
 import org.kie.api.builder.model.KieModuleModel;
+import org.kie.api.pmml.PMML4Result;
 import org.kie.internal.kogito.codegen.Generated;
 import org.kie.internal.kogito.codegen.VariableInfo;
 import org.kie.kogito.Model;
@@ -79,6 +77,9 @@ import org.kie.kogito.codegen.prediction.PredictionCodegen;
 import org.kie.kogito.codegen.process.ProcessCodegen;
 import org.kie.kogito.codegen.process.persistence.PersistenceGenerator;
 import org.kie.kogito.codegen.rules.IncrementalRuleCodegen;
+import org.kie.pmml.evaluator.core.executor.PMMLModelEvaluator;
+import org.kie.pmml.evaluator.core.executor.PMMLModelEvaluatorFinder;
+import org.kie.pmml.evaluator.core.executor.PMMLModelEvaluatorFinderImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -104,6 +105,8 @@ public class KogitoAssetsProcessor {
     private static final DotName persistenceFactoryClass = DotName.createSimple("org.kie.kogito.persistence.KogitoProcessInstancesFactory");
     private static final DotName metricsClass = DotName.createSimple("org.kie.kogito.monitoring.rest.MetricsResource");
     private static final DotName tracingClass = DotName.createSimple("org.kie.kogito.tracing.decision.DecisionTracingListener");
+    private static final DotName knativeEventingClass = DotName.createSimple("org.kie.kogito.events.knative.ce.extensions.KogitoProcessExtension");
+    private static final DotName dmnJpmmlClass = DotName.createSimple( "org.kie.dmn.jpmml.DMNjPMMLInvocationEvaluator");
 
     @Inject
     ArchiveRootBuildItem root;
@@ -153,11 +156,16 @@ public class KogitoAssetsProcessor {
                 .getClassByName(metricsClass) != null;
         boolean useTracing = !combinedIndexBuildItem.getIndex()
                 .getAllKnownSubclasses(tracingClass).isEmpty();
+        boolean useKnativeEventing = combinedIndexBuildItem.getIndex()
+                .getClassByName(knativeEventingClass) != null;
+        boolean isJPMMLAvailable =combinedIndexBuildItem.getIndex()
+                .getClassByName(dmnJpmmlClass) != null;
 
         AddonsConfig addonsConfig = new AddonsConfig()
                 .withPersistence(usePersistence)
                 .withMonitoring(useMonitoring)
-                .withTracing(useTracing);
+                .withTracing(useTracing)
+                .withKnativeEventing(useKnativeEventing);
 
         ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
         GeneratorContext context = buildContext(appPaths, combinedIndexBuildItem.getIndex());
@@ -185,11 +193,12 @@ public class KogitoAssetsProcessor {
                 .withAddons(addonsConfig)
                 .withClassLoader(classLoader);
 
-        appGen.withGenerator(PredictionCodegen.ofCollectedResources(CollectedResource.fromPaths(paths)))
+        appGen.withGenerator(PredictionCodegen.ofCollectedResources(isJPMMLAvailable, CollectedResource.fromPaths(paths)))
                 .withAddons(addonsConfig);
 
         appGen.withGenerator(DecisionCodegen.ofCollectedResources(CollectedResource.fromPaths(paths)))
-                .withAddons(addonsConfig);
+              .withAddons(addonsConfig)
+              .withClassLoader(classLoader);
 
         // real work occurs here: invoke the code-generation procedure
         Collection<GeneratedFile> generatedFiles = appGen.generate();
@@ -395,8 +404,23 @@ public class KogitoAssetsProcessor {
     }
 
     @BuildStep
-    public RuntimeInitializedClassBuildItem runtimeInitializedClass() {
-        return new RuntimeInitializedClassBuildItem(ClassFieldAccessorFactory.class.getName());
+    public List<ReflectiveClassBuildItem> reflectivePredictions() {
+        logger.debug("reflectivePredictions()");
+        PMMLModelEvaluatorFinder pmmlModelEvaluatorFinder = new PMMLModelEvaluatorFinderImpl();
+        final List<PMMLModelEvaluator> pmmlEvaluators = pmmlModelEvaluatorFinder.getImplementations(false);
+        logger.debug("pmmlEvaluators {}", pmmlEvaluators.size());
+        final List<ReflectiveClassBuildItem> toReturn = new ArrayList<>();
+        toReturn.add(new ReflectiveClassBuildItem(true, true, PMML4Result.class));
+        pmmlEvaluators.
+                forEach(pmmlModelEvaluator -> toReturn.add(new ReflectiveClassBuildItem(true, true, pmmlModelEvaluator.getClass())));
+        logger.debug("toReturn {}", toReturn.size());
+        return toReturn;
+    }
+
+    @BuildStep
+    public NativeImageResourceBuildItem predictionSPI() {
+        logger.debug("predictionSPI()");
+        return new NativeImageResourceBuildItem("META-INF/services/org.kie.pmml.evaluator.core.executor.PMMLModelEvaluator");
     }
 
     private void writeJsonSchema(AppPaths appPaths, Index index) throws IOException {
@@ -490,9 +514,9 @@ public class KogitoAssetsProcessor {
         for (Path resourcePath : appPaths.getResourcePaths()) {
             Path moduleXmlPath = resourcePath.resolve(KogitoKieModuleModelImpl.KMODULE_JAR_PATH);
             if (Files.exists(moduleXmlPath)) {
-                return KogitoKieModuleModelImpl.fromXML(
-                        new ByteArrayInputStream(
-                                Files.readAllBytes(moduleXmlPath)));
+                try (ByteArrayInputStream bais = new ByteArrayInputStream(Files.readAllBytes(moduleXmlPath))) {
+                    return KogitoKieModuleModelImpl.fromXML(bais);
+                }
             }
         }
 

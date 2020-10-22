@@ -15,9 +15,6 @@
 
 package org.kie.kogito.codegen.decision;
 
-import java.io.File;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
 import java.util.Optional;
 
@@ -27,32 +24,29 @@ import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.Expression;
-import com.github.javaparser.ast.expr.FieldAccessExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
-import com.github.javaparser.ast.expr.NameExpr;
-import com.github.javaparser.ast.expr.ObjectCreationExpr;
-import com.github.javaparser.ast.expr.StringLiteralExpr;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
-import org.drools.core.util.IoUtils;
 import org.kie.kogito.codegen.AbstractApplicationSection;
 import org.kie.kogito.codegen.AddonsConfig;
+import org.kie.kogito.codegen.io.CollectedResource;
 import org.kie.kogito.decision.DecisionModels;
 import org.kie.kogito.dmn.DmnExecutionIdSupplier;
 
 import static org.kie.kogito.codegen.CodegenUtils.newObject;
+import static org.kie.kogito.codegen.decision.ReadResourceUtil.getReadResourceMethod;
 
 public class DecisionContainerGenerator extends AbstractApplicationSection {
 
     private static final String TEMPLATE_JAVA = "/class-templates/DecisionContainerTemplate.java";
 
     private String applicationCanonicalName;
-    private final List<DMNResource> resources;
+    private final List<CollectedResource> resources;
     private AddonsConfig addonsConfig = AddonsConfig.DEFAULT;
 
-    public DecisionContainerGenerator(String applicationCanonicalName, List<DMNResource> resources) {
+    public DecisionContainerGenerator(String applicationCanonicalName, List<CollectedResource> cResources) {
         super("DecisionModels", "decisionModels", DecisionModels.class);
         this.applicationCanonicalName = applicationCanonicalName;
-        this.resources = resources;
+        this.resources = cResources;
     }
 
     public DecisionContainerGenerator withAddons(AddonsConfig addonsConfig) {
@@ -65,10 +59,9 @@ public class DecisionContainerGenerator extends AbstractApplicationSection {
         CompilationUnit clazz = StaticJavaParser.parse(this.getClass().getResourceAsStream(TEMPLATE_JAVA));
         ClassOrInterfaceDeclaration typeDeclaration = (ClassOrInterfaceDeclaration) clazz.getTypes().get(0);
         ClassOrInterfaceType applicationClass = StaticJavaParser.parseClassOrInterfaceType(applicationCanonicalName);
-        ClassOrInterfaceType inputStreamReaderClass = StaticJavaParser.parseClassOrInterfaceType(java.io.InputStreamReader.class.getCanonicalName());
-        for (DMNResource resource : resources) {
+        for (CollectedResource resource : resources) {
             MethodCallExpr getResAsStream = getReadResourceMethod(applicationClass, resource);
-            ObjectCreationExpr isr = new ObjectCreationExpr().setType(inputStreamReaderClass).addArgument(getResAsStream);
+            MethodCallExpr isr = new MethodCallExpr("readResource").addArgument(getResAsStream);
             Optional<FieldDeclaration> dmnRuntimeField = typeDeclaration.getFieldByName("dmnRuntime");
             Optional<Expression> initalizer = dmnRuntimeField.flatMap(x -> x.getVariable(0).getInitializer());
             if (initalizer.isPresent()) {
@@ -84,31 +77,10 @@ public class DecisionContainerGenerator extends AbstractApplicationSection {
         return typeDeclaration;
     }
 
-    private String getDecisionModelJarResourcePath(DMNResource resource) {
-        return resource.getDmnModel().getResource().getSourcePath();
-    }
-
-    private String getDecisionModelRelativeResourcePath(DMNResource resource) {
-        String source = getDecisionModelJarResourcePath(resource);
-        Path relativizedPath = resource.getPath().relativize(Paths.get(source));
-        return "/" + relativizedPath.toString().replace(File.separatorChar, '/');
-    }
-
     private void setupExecIdSupplierVariable(ClassOrInterfaceDeclaration typeDeclaration) {
         VariableDeclarator execIdSupplierVariable = typeDeclaration.getFieldByName("execIdSupplier")
                 .map(x -> x.getVariable(0))
                 .orElseThrow(() -> new RuntimeException("Can't find \"execIdSupplier\" field in " + TEMPLATE_JAVA));
         execIdSupplierVariable.setInitializer(newObject(DmnExecutionIdSupplier.class));
-    }
-
-    private MethodCallExpr getReadResourceMethod(ClassOrInterfaceType applicationClass, DMNResource resource) {
-        if (resource.getPath().toString().endsWith(".jar")) {
-            return new MethodCallExpr(
-                    new MethodCallExpr(new NameExpr(IoUtils.class.getCanonicalName() + ".class"), "getClassLoader"),
-                    "getResourceAsStream").addArgument(new StringLiteralExpr(getDecisionModelJarResourcePath(resource)));
-        }
-
-        return new MethodCallExpr(new FieldAccessExpr(applicationClass.getNameAsExpression(), "class"), "getResourceAsStream")
-                .addArgument(new StringLiteralExpr(getDecisionModelRelativeResourcePath(resource)));
     }
 }

@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.kie.kogito.codegen.AddonsConfig;
 import org.kie.kogito.codegen.GeneratedFile;
 import org.kie.kogito.codegen.GeneratorContext;
+import org.kie.kogito.codegen.io.CollectedResource;
 import org.kie.kogito.grafana.JGrafana;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -41,12 +42,13 @@ public class DecisionCodegenTest {
 
         GeneratorContext context = stronglyTypedContext();
 
-        DecisionCodegen codeGenerator = DecisionCodegen.ofPath(Paths.get("src/test/resources/decision/models/vacationDays").toAbsolutePath());
+        DecisionCodegen codeGenerator = DecisionCodegen.ofCollectedResources(CollectedResource.fromPaths(Paths.get("src/test/resources/decision/models/vacationDays").toAbsolutePath()));
         codeGenerator.setContext(context);
 
         List<GeneratedFile> generatedFiles = codeGenerator.generate();
         assertThat(generatedFiles.size()).isGreaterThanOrEqualTo(6);
         assertThat(fileNames(generatedFiles)).containsAll(Arrays.asList("decision/InputSet.java",
+                                                                        "decision/OutputSet.java",
                                                                         "decision/TEmployee.java",
                                                                         "decision/TAddress.java",
                                                                         "decision/TPayroll.java",
@@ -71,12 +73,13 @@ public class DecisionCodegenTest {
     public void doNotGenerateTypesafeInfo() throws Exception {
         GeneratorContext context = stronglyTypedContext();
 
-        DecisionCodegen codeGenerator = DecisionCodegen.ofPath(Paths.get("src/test/resources/decision/alltypes/").toAbsolutePath());
+        DecisionCodegen codeGenerator = DecisionCodegen.ofCollectedResources(CollectedResource.fromPaths(Paths.get("src/test/resources/decision/alltypes/").toAbsolutePath()));
         codeGenerator.setContext(context);
 
         List<GeneratedFile> generatedFiles = codeGenerator.generate();
         assertThat(generatedFiles.size()).isGreaterThanOrEqualTo(3);
         assertThat(fileNames(generatedFiles)).containsAll(Arrays.asList("http_58_47_47www_46trisotech_46com_47definitions_47__4f5608e9_454d74_454c22_45a47e_45ab657257fc9c/InputSet.java",
+                                                                        "http_58_47_47www_46trisotech_46com_47definitions_47__4f5608e9_454d74_454c22_45a47e_45ab657257fc9c/OutputSet.java",
                                                                         "http_58_47_47www_46trisotech_46com_47definitions_47__4f5608e9_454d74_454c22_45a47e_45ab657257fc9c/OneOfEachTypeResource.java",
                                                                         "org/kie/kogito/app/DecisionModelResourcesProvider.java"));
 
@@ -114,7 +117,7 @@ public class DecisionCodegenTest {
 
     @Test
     public void resilientToDuplicateDMNIDs() throws Exception {
-        DecisionCodegen codeGenerator = DecisionCodegen.ofPath(Paths.get("src/test/resources/decision-test20200507").toAbsolutePath());
+        DecisionCodegen codeGenerator = DecisionCodegen.ofCollectedResources(CollectedResource.fromPaths(Paths.get("src/test/resources/decision-test20200507").toAbsolutePath()));
 
         List<GeneratedFile> generatedFiles = codeGenerator.generate();
         assertThat(generatedFiles.size()).isGreaterThanOrEqualTo(3);
@@ -125,7 +128,7 @@ public class DecisionCodegenTest {
 
     @Test
     public void emptyName() throws Exception {
-        DecisionCodegen codeGenerator = DecisionCodegen.ofPath(Paths.get("src/test/resources/decision-empty-name").toAbsolutePath());
+        DecisionCodegen codeGenerator = DecisionCodegen.ofCollectedResources(CollectedResource.fromPaths(Paths.get("src/test/resources/decision-empty-name").toAbsolutePath()));
         RuntimeException re = Assertions.assertThrows(RuntimeException.class, () -> {
             codeGenerator.generate();
         });
@@ -133,7 +136,7 @@ public class DecisionCodegenTest {
     }
 
     private List<GeneratedFile> generateTestDashboards(AddonsConfig addonsConfig) throws IOException {
-        DecisionCodegen codeGenerator = DecisionCodegen.ofPath(Paths.get("src/test/resources/decision/models/vacationDays").toAbsolutePath())
+        DecisionCodegen codeGenerator = DecisionCodegen.ofCollectedResources(CollectedResource.fromPaths(Paths.get("src/test/resources/decision/models/vacationDays").toAbsolutePath()))
                 .withAddons(addonsConfig);
 
         List<GeneratedFile> generatedFiles = codeGenerator.generate();
@@ -143,5 +146,35 @@ public class DecisionCodegenTest {
         assertEquals(2, dashboards.size());
 
         return dashboards;
+    }
+
+    @Test
+    public void testNSEW_positive() throws Exception {
+        // This test is meant to check that IFF Eclipse MP OpenAPI annotations are available on Build/CP of Kogito application, annotation is used with codegen
+        DecisionCodegen codeGenerator = DecisionCodegen.ofCollectedResources(CollectedResource.fromPaths(Paths.get("src/test/resources/decision-NSEW").toAbsolutePath()));
+        GeneratorContext context = stronglyTypedContext();
+        codeGenerator.setContext(context);
+        codeGenerator.withClassLoader(new ClassLoader() {
+            public Class<?> loadClass(String name) throws ClassNotFoundException {
+                return Object.class;
+            }
+        });
+
+        List<GeneratedFile> generatedFiles = codeGenerator.generate();
+        assertThat(generatedFiles).anyMatch(x -> x.relativePath().endsWith("InputSet.java"));
+        GeneratedFile inputSetFile = generatedFiles.stream().filter(x -> x.relativePath().endsWith("InputSet.java")).findFirst().get();
+        assertThat(new String(inputSetFile.contents())).containsPattern("@org\\.eclipse\\.microprofile\\.openapi\\.annotations\\.media\\.Schema\\(.*enumeration");
+    }
+
+    @Test
+    public void testNSEW_negative() throws Exception {
+        DecisionCodegen codeGenerator = DecisionCodegen.ofCollectedResources(CollectedResource.fromPaths(Paths.get("src/test/resources/decision-NSEW").toAbsolutePath()));
+        GeneratorContext context = stronglyTypedContext();
+        codeGenerator.setContext(context);
+
+        List<GeneratedFile> generatedFiles = codeGenerator.generate();
+        assertThat(generatedFiles).anyMatch(x -> x.relativePath().endsWith("InputSet.java"));
+        GeneratedFile inputSetFile = generatedFiles.stream().filter(x -> x.relativePath().endsWith("InputSet.java")).findFirst().get();
+        assertThat(new String(inputSetFile.contents())).doesNotContain("@org.eclipse.microprofile.openapi.annotations.media.Schema");
     }
 }

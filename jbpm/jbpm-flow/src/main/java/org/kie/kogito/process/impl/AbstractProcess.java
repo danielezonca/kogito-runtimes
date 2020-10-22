@@ -16,6 +16,7 @@
 package org.kie.kogito.process.impl;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
@@ -29,7 +30,10 @@ import org.jbpm.workflow.core.impl.WorkflowProcessImpl;
 import org.jbpm.workflow.core.node.StartNode;
 import org.kie.api.runtime.process.EventListener;
 import org.kie.api.runtime.process.ProcessRuntime;
+import org.kie.api.runtime.process.WorkItemHandler;
+import org.kie.api.runtime.process.WorkItemManager;
 import org.kie.api.runtime.process.WorkflowProcessInstance;
+import org.kie.kogito.Application;
 import org.kie.kogito.Model;
 import org.kie.kogito.jobs.DurationExpirationTime;
 import org.kie.kogito.jobs.ExactExpirationTime;
@@ -51,6 +55,8 @@ public abstract class AbstractProcess<T extends Model> implements Process<T> {
     protected ProcessInstancesFactory processInstancesFactory;
     protected MutableProcessInstances<T> instances;
     protected CompletionEventListener completionEventListener = new CompletionEventListener();
+    
+    protected Application app;
 
     protected boolean activated;
     protected List<String> startTimerInstances = new ArrayList<>();
@@ -65,8 +71,26 @@ public abstract class AbstractProcess<T extends Model> implements Process<T> {
     }
 
     protected AbstractProcess(ProcessRuntimeServiceProvider services) {
+        this(services, Collections.emptyList(), null);
+    }
+
+    protected AbstractProcess(Application app, Collection<WorkItemHandler> handlers) {
+        this(app, handlers, null);
+    }
+    
+    protected AbstractProcess(Application app, Collection<WorkItemHandler> handlers, ProcessInstancesFactory factory) {
+        this(new ConfiguredProcessServices(app.config().process()), handlers, factory);
+        this.app = app;
+    }
+
+    protected AbstractProcess(ProcessRuntimeServiceProvider services, Collection<WorkItemHandler> handlers, ProcessInstancesFactory factory) {
         this.services = services;
         this.instances = new MapProcessInstances<>();
+        this.processInstancesFactory = factory;
+        WorkItemManager workItemManager = services.getWorkItemManager();
+        for (WorkItemHandler handler : handlers) {
+            workItemManager.registerWorkItemHandler(handler.getName(), handler);
+        }
     }
 
     @Override
@@ -197,9 +221,9 @@ public abstract class AbstractProcess<T extends Model> implements Process<T> {
 
         public CompletionEventListener() {
             //Do nothing
-		}
+        }
 
-		@Override
+        @Override
         public void signalEvent(String type, Object event) {
             if (type.startsWith("processInstanceCompleted:")) {
                 org.kie.api.runtime.process.ProcessInstance pi = (org.kie.api.runtime.process.ProcessInstance) event;

@@ -25,8 +25,11 @@ import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.test.context.ContextConfiguration;
 
 import static io.restassured.RestAssured.given;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.CoreMatchers.not;
+import static org.hamcrest.Matchers.emptyOrNullString;
 
 @ExtendWith(SpringExtension.class)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, classes = KogitoSpringbootApplication.class)
@@ -95,18 +98,20 @@ class ManagementAddOnTest extends BaseRestTest {
     void testGetProcessNodes() {
         given()
                 .contentType(ContentType.JSON)
-                .when()
+            .when()
                 .get("/management/processes/{processId}/nodes", "greetings")
-                .then()
+            .then()
                 .statusCode(200)
                 .body("$.size", is(10))
                 .body("[0].id", is(1))
                 .body("[0].name", is("End"))
                 .body("[0].type", is("EndNode"))
                 .body("[0].uniqueId", is("1"))
+                .body("[0].nodeDefinitionId", not(emptyOrNullString()))
                 .body("[9].id", is(10))
                 .body("[9].name", is("BoundaryEvent"))
                 .body("[9].type", is("BoundaryEventNode"))
-                .body("[9].uniqueId", is("10"));
+                .body("[9].uniqueId", is("10"))
+                .body("[9].nodeDefinitionId", not(emptyOrNullString()));
     }
 }

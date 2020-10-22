@@ -52,7 +52,7 @@ public class QuarkusExplainableResourceIT {
         String resourceId = String.format("%s:%s", MODEL_NAMESPACE, MODEL_NAME);
         String body = String.format(
                 "[{\"request\" : {\"Driver\": {\"Age\": 25, \"Points\": 100}, \"Violation\": {\"Type\" : \"speed\", \"Actual Speed\": 120, \"Speed Limit\": 40}}," +
-                "\"modelIdentifier\": {\"resourceType\": \"dmn\",\"resourceId\": \"%s\"}, \"id\" : \"pi1\" }]",
+                "\"modelIdentifier\": {\"resourceType\": \"dmn\",\"resourceId\": \"%s\"}}]",
                 resourceId);
 
         List<PredictOutput> outputs = given()
@@ -69,7 +69,6 @@ public class QuarkusExplainableResourceIT {
         assertNotNull(output);
         assertNotNull(output.getResult());
         assertNotNull(output.getModelIdentifier());
-        assertEquals("pi1", output.getId());
         Map<String, Object> result = output.getResult();
 
         assertTrue(result.containsKey("Should the driver be suspended?"));
@@ -86,9 +85,9 @@ public class QuarkusExplainableResourceIT {
         String resourceId = String.format("%s:%s", MODEL_NAMESPACE, MODEL_NAME);
         String body = String.format(
                 "[{\"request\" : {\"Driver\": {\"Age\": 25, \"Points\": 100}, \"Violation\": {\"Type\" : \"speed\", \"Actual Speed\": 120, \"Speed Limit\": 40}}," +
-                        "\"modelIdentifier\": {\"resourceType\": \"dmn\",\"resourceId\": \"%s\"}, \"id\" : \"pi1\"}, " +
+                        "\"modelIdentifier\": {\"resourceType\": \"dmn\",\"resourceId\": \"%s\"}}, " +
                         "{\"request\" : {\"Driver\": {\"Age\": 25, \"Points\": 100}, \"Violation\": {\"Type\" : \"speed\", \"Actual Speed\": 120, \"Speed Limit\": 120}}," +
-                "\"modelIdentifier\": {\"resourceType\": \"dmn\",\"resourceId\": \"%s\"}, \"id\" : \"pi2\"}]",
+                "\"modelIdentifier\": {\"resourceType\": \"dmn\",\"resourceId\": \"%s\"}}]",
                 resourceId, resourceId);
 
         List<PredictOutput> outputs = given()
@@ -106,8 +105,6 @@ public class QuarkusExplainableResourceIT {
         assertNotNull(output);
         assertNotNull(output.getResult());
         assertNotNull(output.getModelIdentifier());
-        assertEquals("pi1", outputs.get(0).getId());
-        assertEquals("pi2", outputs.get(1).getId());
         Map<String, Object> result = output.getResult();
 
         assertTrue(result.containsKey("Should the driver be suspended?"));
@@ -131,21 +128,22 @@ public class QuarkusExplainableResourceIT {
 
     @Test
     void explainServiceFail() {
-        String resourceId = "unknown:model";
+        String unknownResourceId = "unknown:model";
         String body = String.format(
                 "[{\"request\" : {\"Driver\": {\"Age\": 25, \"Points\": 100}, \"Violation\": {\"Type\" : \"speed\", \"Actual Speed\": 120, \"Speed Limit\": 40}}," +
                         "\"modelIdentifier\": {\"resourceType\": \"dmn\",\"resourceId\": \"%s\"}}, " +
                         "{\"request\" : {\"Driver\": {\"Age\": 25, \"Points\": 100}, \"Violation\": {\"Type\" : \"speed\", \"Actual Speed\": 120, \"Speed Limit\": 120}}," +
                         "\"modelIdentifier\": {\"resourceType\": \"dmn\",\"resourceId\": \"%s\"}}]",
-                resourceId, resourceId);
+                unknownResourceId, unknownResourceId);
 
-        List<PredictOutput> outputs = given()
+        given()
                 .contentType(ContentType.JSON)
                 .when()
                 .body(body)
                 .post("/predict")
-                .as(new TypeRef<List<PredictOutput>>() { });
-
-        assertTrue(outputs.isEmpty());
+                .then()
+                .statusCode(Response.Status.BAD_REQUEST.getStatusCode())
+                .body(Matchers.isA(String.class))
+                .body(Matchers.containsString("Model " + unknownResourceId + " not found."));
     }
 }

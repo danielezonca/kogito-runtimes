@@ -16,12 +16,14 @@
 
 package org.kie.kogito.tracing.decision;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
-import io.cloudevents.v1.CloudEventImpl;
+import io.cloudevents.CloudEvent;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.kie.dmn.api.core.DMNModel;
@@ -30,7 +32,6 @@ import org.kie.kogito.conf.ConfigBean;
 import org.kie.kogito.conf.StaticConfigBean;
 import org.kie.kogito.tracing.decision.event.CloudEventUtils;
 import org.kie.kogito.tracing.decision.event.evaluate.EvaluateEvent;
-import org.kie.kogito.tracing.decision.event.trace.TraceEvent;
 import org.kie.kogito.tracing.decision.mock.MockDefaultAggregator;
 import org.kie.kogito.tracing.decision.terminationdetector.BoundariesTerminationDetector;
 import org.kie.kogito.tracing.decision.terminationdetector.CounterTerminationDetector;
@@ -61,16 +62,16 @@ class DecisionTracingCollectorTest {
     }
 
     @Test
-    void test_Collector_InterleavedEvaluations_BoundariesDetector_Working() {
+    void test_Collector_InterleavedEvaluations_BoundariesDetector_Working() throws IOException {
         testInterleavedEvaluations(BoundariesTerminationDetector::new);
     }
 
     @Test
-    void test_Collector_InterleavedEvaluations_CounterDetector_Working() {
+    void test_Collector_InterleavedEvaluations_CounterDetector_Working() throws IOException {
         testInterleavedEvaluations(CounterTerminationDetector::new);
     }
 
-    private void testInterleavedEvaluations(Supplier<TerminationDetector> terminationDetectorSupplier) {
+    private void testInterleavedEvaluations(Supplier<TerminationDetector> terminationDetectorSupplier) throws IOException {
         MockDefaultAggregator aggregator = new MockDefaultAggregator();
         Consumer<String> payloadConsumer = mock(Consumer.class);
 
@@ -94,7 +95,7 @@ class DecisionTracingCollectorTest {
             }
         }
 
-        Map<String, Pair<List<EvaluateEvent>, CloudEventImpl<TraceEvent>>> aggregatorCalls = aggregator.getCalls();
+        Map<String, Pair<List<EvaluateEvent>, CloudEvent>> aggregatorCalls = aggregator.getCalls();
         assertEquals(2, aggregatorCalls.size());
         assertTrue(aggregatorCalls.containsKey(EVALUATE_ALL_EXECUTION_ID));
         assertEquals(evaluateAllEvents.size(), aggregatorCalls.get(EVALUATE_ALL_EXECUTION_ID).getLeft().size());
@@ -108,8 +109,18 @@ class DecisionTracingCollectorTest {
         int evaluateDecisionServiceIndex = evaluateAllIndex == 1 ? 0 : 1;
 
         List<String> payloads = payloadCaptor.getAllValues();
-        assertEquals(CloudEventUtils.encode(aggregatorCalls.get(EVALUATE_ALL_EXECUTION_ID).getRight()), payloads.get(evaluateAllIndex));
-        assertEquals(CloudEventUtils.encode(aggregatorCalls.get(EVALUATE_DECISION_SERVICE_EXECUTION_ID).getRight()), payloads.get(evaluateDecisionServiceIndex));
+
+        String expectedEvaluateAll = encodeFromCall(aggregatorCalls, EVALUATE_ALL_EXECUTION_ID);
+        assertEquals(expectedEvaluateAll, payloads.get(evaluateAllIndex));
+
+        String expectedEvaluateDecisionService = encodeFromCall(aggregatorCalls, EVALUATE_DECISION_SERVICE_EXECUTION_ID);
+        assertEquals(expectedEvaluateDecisionService, payloads.get(evaluateDecisionServiceIndex));
     }
 
+    private static String encodeFromCall(Map<String, Pair<List<EvaluateEvent>, CloudEvent>> aggregatorCalls, String key) {
+        return Optional.ofNullable(aggregatorCalls.get(key))
+                .map(Pair::getRight)
+                .flatMap(CloudEventUtils::encode)
+                .orElseThrow(IllegalStateException::new);
+    }
 }

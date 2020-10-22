@@ -27,7 +27,6 @@ import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.IntStream;
 
 import static java.util.Arrays.asList;
 import static java.util.Collections.emptyList;
@@ -46,7 +45,7 @@ class SpringBootExplainableResourceTest {
     @Test
     @SuppressWarnings("unchecked")
     void explainServiceTest() {
-        List<PredictInput> inputs = singletonList(createInput("pi1", 40));
+        List<PredictInput> inputs = singletonList(createInput(40));
 
         List<PredictOutput> outputs = (List<PredictOutput>) resource.predict(inputs).getBody();
 
@@ -57,7 +56,6 @@ class SpringBootExplainableResourceTest {
 
         assertNotNull(output.getResult());
         assertNotNull(output.getModelIdentifier());
-        assertEquals(inputs.get(0).getId(), output.getId());
         Map<String, Object> result = output.getResult();
 
         assertTrue(result.containsKey("Should the driver be suspended?"));
@@ -73,7 +71,7 @@ class SpringBootExplainableResourceTest {
     @Test
     @SuppressWarnings("unchecked")
     void explainServiceTestMultipleInputs() {
-        List<PredictInput> inputs = asList(createInput("pi1", 40), createInput("pi2", 120));
+        List<PredictInput> inputs = asList(createInput(40), createInput(120));
 
         List<PredictOutput> outputs = (List<PredictOutput>) resource.predict(inputs).getBody();
 
@@ -85,9 +83,6 @@ class SpringBootExplainableResourceTest {
         assertNotNull(output);
         assertNotNull(output.getResult());
         assertNotNull(output.getModelIdentifier());
-
-        IntStream.range(0, inputs.size()).forEach(i -> assertEquals(inputs.get(i).getId(), outputs.get(i).getId()));
-
         Map<String, Object> result = output.getResult();
 
         assertTrue(result.containsKey("Should the driver be suspended?"));
@@ -106,18 +101,16 @@ class SpringBootExplainableResourceTest {
 
     @Test
     void explainServiceFail() {
-        PredictInput input = createInput("pi1", 10);
-        input.getModelIdentifier().setResourceId("unknown:model");
+        String unknownwResourceId = "unknown:model";
+        PredictInput input = createInput(10);
+        input.getModelIdentifier().setResourceId(unknownwResourceId);
         ResponseEntity<Object> responseEntity = resource.predict(singletonList(input));
 
-        assertEquals(HttpStatus.OK, responseEntity.getStatusCode());
-        assertTrue(responseEntity.getBody() instanceof List);
-        @SuppressWarnings("unchecked")
-        List<PredictOutput> outputs = (List<PredictOutput>) responseEntity.getBody();
-        assertTrue(outputs.isEmpty());
+        assertEquals(HttpStatus.BAD_REQUEST, responseEntity.getStatusCode());
+        assertEquals("Model " + unknownwResourceId + " not found.", responseEntity.getBody());
     }
 
-    private PredictInput createInput(String id, int speedLimit) {
+    private PredictInput createInput(int speedLimit) {
         String resourceId = String.format("%s:%s", MODEL_NAMESPACE, MODEL_NAME);
 
         Map<String, Object> driver = new HashMap<>();
@@ -134,6 +127,6 @@ class SpringBootExplainableResourceTest {
         payload.put("Violation", violation);
 
         ModelIdentifier modelIdentifier = new ModelIdentifier("dmn", resourceId);
-        return new PredictInput(id, modelIdentifier, payload);
+        return new PredictInput(modelIdentifier, payload);
     }
 }

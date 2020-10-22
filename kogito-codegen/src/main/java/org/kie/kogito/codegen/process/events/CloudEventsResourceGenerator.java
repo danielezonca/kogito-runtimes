@@ -1,3 +1,18 @@
+/*
+ * Copyright 2020 Red Hat, Inc. and/or its affiliates.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package org.kie.kogito.codegen.process.events;
 
 import java.util.ArrayList;
@@ -5,27 +20,22 @@ import java.util.Collections;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
-import com.github.javaparser.ast.comments.Comment;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import org.jbpm.compiler.canonical.TriggerMetaData;
-import org.kie.kogito.codegen.ApplicationGenerator;
 import org.kie.kogito.codegen.BodyDeclarationComparator;
 import org.kie.kogito.codegen.di.CDIDependencyInjectionAnnotator;
 import org.kie.kogito.codegen.di.DependencyInjectionAnnotator;
 import org.kie.kogito.codegen.process.ProcessExecutableModelGenerator;
 
-import static com.github.javaparser.StaticJavaParser.parse;
+public class CloudEventsResourceGenerator extends AbstractEventResourceGenerator {
 
-public class CloudEventsResourceGenerator {
-
-    public static final String EMITTER_PREFIX = "emitter_";
+    static final String EMITTER_PREFIX = "emitter_";
     static final String EMITTER_TYPE = "Emitter<String>";
     private static final String RESOURCE_TEMPLATE = "/class-templates/events/CloudEventsListenerResource.java";
     private static final String CLASS_NAME = "CloudEventListenerResource";
@@ -49,6 +59,10 @@ public class CloudEventsResourceGenerator {
         return RESOURCE_TEMPLATE;
     }
 
+    protected String getClassName() {
+        return CLASS_NAME;
+    }
+
     /**
      * Triggers used to generate the channels
      *
@@ -56,15 +70,6 @@ public class CloudEventsResourceGenerator {
      */
     List<TriggerMetaData> getTriggers() {
         return triggers;
-    }
-
-    /**
-     * Gets the full class name in path format like <code>org/my/ns/Class.java</code>
-     *
-     * @return
-     */
-    public String generatedFilePath() {
-        return String.format("%s/%s.java", ApplicationGenerator.DEFAULT_PACKAGE_NAME.replace(".", "/"), CLASS_NAME);
     }
 
     /**
@@ -105,32 +110,19 @@ public class CloudEventsResourceGenerator {
         return Collections.emptyList();
     }
 
-    private CompilationUnit parseTemplate() {
-        return parse(this.getClass().getResourceAsStream(getResourceTemplate())).setPackageDeclaration(ApplicationGenerator.DEFAULT_PACKAGE_NAME);
-    }
-
     private void addChannels(final ClassOrInterfaceDeclaration template) {
         // adding Emitters to hashmap
         final MethodDeclaration setup = template.findFirst(MethodDeclaration.class, m -> m.getAnnotationByName("PostConstruct").isPresent())
                 .orElseThrow(() -> new IllegalArgumentException("No setup method found!"));
         final BlockStmt setupBody = setup.getBody().orElseThrow(() -> new IllegalArgumentException("No body found in setup method!"));
-        // first we take the comment block and then filter the content to use only the lines we are interested
-        final List<String> linesSetup = Stream.of(setup.getAllContainedComments().stream()
-                                                          .filter(c -> c.isBlockComment() && c.getContent().contains("$repeat$"))
-                                                          .findFirst().orElseThrow(() -> new IllegalArgumentException("Emitters setup repeat block not found!"))
-                                                          .getContent().split("\n"))
-                .filter(l -> !l.trim().isEmpty() && !l.contains("repeat"))
-                .map(l -> l.replace("*", ""))
-                .collect(Collectors.toList());
-        // clean up the comments
-        setup.getAllContainedComments().forEach(Comment::remove);
+        final List<String> lines = this.extractRepeatLinesFromMethod(setupBody);
         // declaring Emitters
         this.triggers.forEach(t -> {
-            final String emitterField = String.join("", EMITTER_PREFIX, t.getName());
+            final String emitterField = this.sanitizeEmitterName(t.getName());
             // fields to be injected
             annotator.withOutgoingMessage(template.addField(EMITTER_TYPE, new StringLiteralExpr(emitterField).asString()), t.getName());
             // hashmap setup
-            linesSetup.forEach(l -> setupBody.addStatement(l.replace("$channel$", t.getName()).replace("$emitter$", emitterField)));
+            lines.forEach(l -> setupBody.addStatement(l.replace("$channel$", t.getName()).replace("$emitter$", emitterField)));
         });
     }
 
@@ -138,5 +130,9 @@ public class CloudEventsResourceGenerator {
         annotator.withApplicationComponent(template);
         template.findAll(FieldDeclaration.class, fd -> fd.getVariables().get(0).getNameAsString().contains(EMITTER_PREFIX))
                 .forEach(annotator::withInjection);
+    }
+
+    String sanitizeEmitterName(String triggerName) {
+        return String.join("", EMITTER_PREFIX, triggerName.replaceAll("[^a-zA-Z0-9]+", ""));
     }
 }

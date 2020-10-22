@@ -18,6 +18,7 @@ package org.drools.statics;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +28,7 @@ import org.kie.api.internal.assembler.KieAssemblers;
 import org.kie.api.internal.runtime.KieRuntimeService;
 import org.kie.api.internal.runtime.KieRuntimes;
 import org.kie.api.internal.utils.ServiceRegistry;
+import org.kie.api.internal.weaver.KieWeaverService;
 import org.kie.api.internal.weaver.KieWeavers;
 import org.kie.api.io.Resource;
 import org.kie.api.io.ResourceConfiguration;
@@ -52,10 +54,9 @@ public class StaticServiceRegistry implements ServiceRegistry {
 
     private void wireServices() {
         serviceMap.put(org.kie.api.io.KieResources.class, SimpleInstanceCreator.instance("org.drools.core.io.impl.ResourceFactoryServiceImpl"));
-        serviceMap.put(org.kie.api.marshalling.KieMarshallers.class, SimpleInstanceCreator.instance("org.drools.core.marshalling.impl.MarshallerProviderImpl"));
         serviceMap.put(org.kie.api.concurrent.KieExecutors.class, SimpleInstanceCreator.instance("org.drools.core.concurrent.ExecutorProviderImpl"));
         serviceMap.put(org.kie.api.KieServices.class, SimpleInstanceCreator.instance("org.drools.compiler.kie.builder.impl.KieServicesImpl"));
-        serviceMap.put(org.kie.internal.builder.KnowledgeBuilderFactoryService.class, SimpleInstanceCreator.instance("org.drools.compiler.builder.impl.KogitoKnowledgeBuilderFactoryServiceImpl"));
+        serviceMap.put(org.kie.internal.builder.KnowledgeBuilderFactoryService.class, SimpleInstanceCreator.instance("org.drools.compiler.builder.impl.KnowledgeBuilderFactoryServiceImpl"));
         serviceMap.put(org.kie.kogito.rules.DataSource.Factory.class, SimpleInstanceCreator.instance("org.kie.kogito.rules.units.impl.DataSourceFactoryImpl"));
         serviceMap.put(org.kie.internal.ruleunit.RuleUnitComponentFactory.class, SimpleInstanceCreator.instance("org.kie.kogito.rules.units.impl.RuleUnitComponentFactoryImpl"));
         serviceMap.put(KieAssemblers.class, new StaticKieAssemblers());
@@ -71,33 +72,58 @@ public class StaticServiceRegistry implements ServiceRegistry {
 
         constructorMap.put("TimerService", SimpleInstanceCreator.constructor("org.drools.core.time.impl.JDKTimerService"));
 
-        registerKieRuntimeService("org.kie.pmml.evaluator.api.executor.PMMLRuntime", "org.kie.pmml.evaluator.core.service.PMMLRuntimeService");
+        // pmml
+        registerKieRuntimeService("org.kie.pmml.evaluator.api.executor.PMMLRuntime", "org.kie.pmml.evaluator.core.service.PMMLRuntimeService", false);
+        registerKieWeaverService("org.kie.pmml.evaluator.assembler.PMMLWeaverService", false);
+
+        // marshalling
+        registerService(org.kie.api.marshalling.KieMarshallers.class.getCanonicalName(), "org.drools.serialization.protobuf.MarshallerProviderImpl", false);
+        registerService("org.drools.compiler.kie.builder.impl.CompilationCacheProvider", "org.drools.serialization.protobuf.CompilationCacheProviderImpl", false);
     }
 
     private void registerService(String service, String implementation, boolean mandatory) {
         try {
             serviceMap.put(Class.forName(service), SimpleInstanceCreator.instance(implementation));
         } catch (Exception e) {
-            if (mandatory) {
-                throw e instanceof RuntimeException ? (RuntimeException) e : new RuntimeException(e);
-            } else {
-                log.debug("Ignored non-mandatory service load error", e);
-            }
+            commonManageException(service, e, mandatory);
         }
     }
 
-    private void registerKieRuntimeService(String runtimeName, String kieRuntimeServiceImplementation) {
+    private void registerKieRuntimeService(String runtimeName, String kieRuntimeServiceImplementation, boolean mandatory) {
         try {
             KieRuntimeService kieRuntimeService = (KieRuntimeService)SimpleInstanceCreator.instance(kieRuntimeServiceImplementation);
             ((KieRuntimes) serviceMap.get(KieRuntimes.class)).getRuntimes().put(runtimeName, kieRuntimeService);
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            commonManageException("KieRuntimes", e, mandatory);
+        }
+    }
+
+    private void registerKieWeaverService(String kieWeaverServiceImplementation, boolean mandatory) {
+        try {
+            final KieWeaversImpl kieWeavers = (KieWeaversImpl) serviceMap.get(KieWeavers.class);
+            KieWeaverService kieWeaverService = (KieWeaverService) SimpleInstanceCreator.instance(kieWeaverServiceImplementation);
+            kieWeavers.accept(kieWeaverService);
+        } catch (Exception e) {
+            commonManageException("KieWeaverService", e, mandatory);
+        }
+    }
+
+    private void commonManageException(String ignoredServiceType, Exception e, boolean mandatory ) {
+        if (mandatory) {
+            throw e instanceof RuntimeException ? (RuntimeException) e : new RuntimeException(e);
+        } else {
+            log.debug("Ignored non-mandatory {} service load error", ignoredServiceType, e);
         }
     }
 
     @Override
     public <T> T get(Class<T> cls) {
         return (T) serviceMap.get(cls);
+    }
+
+    @Override
+    public <T> List<T> getAll( Class<T> cls ) {
+        return Collections.singletonList( get(cls) );
     }
 
     public <T> T newInstance(String name) {
@@ -128,7 +154,7 @@ public class StaticServiceRegistry implements ServiceRegistry {
                                       type,
                                       configuration);
             } else {
-                log.debug("KieAssemblers: ignored " + type);
+                log.debug("KieAssemblers: ignored {}", type);
             }
         }
 
@@ -138,7 +164,7 @@ public class StaticServiceRegistry implements ServiceRegistry {
             if (assembler != null) {
                 assembler.addResources(knowledgeBuilder, resources, type);
             } else {
-                log.debug("KieAssemblers: ignored " + type);
+                log.debug("KieAssemblers: ignored {}", type);
             }
         }
     }
