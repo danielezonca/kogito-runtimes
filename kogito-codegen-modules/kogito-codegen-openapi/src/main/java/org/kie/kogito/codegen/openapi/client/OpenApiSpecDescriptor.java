@@ -92,6 +92,10 @@ public class OpenApiSpecDescriptor {
         return id;
     }
 
+    public OpenApiSpecSymbolId getSymbolId() {
+        return new OpenApiSpecSymbolId(getId());
+    }
+
     public Set<OpenApiClientOperation> getRequiredOperations() {
         return Collections.unmodifiableSet(this.requiredOperations);
     }

@@ -18,7 +18,6 @@ package org.kie.kogito.codegen.decision;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
-import java.util.NoSuchElementException;
 import java.util.Set;
 
 import org.kie.api.management.GAV;
@@ -72,7 +71,7 @@ public class DecisionModelResourcesProviderGenerator {
 
         final ClassOrInterfaceDeclaration clazz = compilationUnit
                 .findFirst(ClassOrInterfaceDeclaration.class)
-                .orElseThrow(() -> new NoSuchElementException("Compilation unit doesn't contain a class or interface declaration!"));
+                .orElseThrow(() -> new InvalidTemplateException(generator, "Compilation unit doesn't contain a class or interface declaration!"));
 
         if (context.hasDI()) {
             context.getDependencyInjectionAnnotator().withSingletonComponent(clazz);
@@ -98,9 +97,11 @@ public class DecisionModelResourcesProviderGenerator {
                     "A \"getResources()\" method was not found");
         }
         final MethodDeclaration getResourcesMethod = getResourcesMethods.get(0);
-        final BlockStmt body = getResourcesMethod.getBody().orElseThrow(() -> new RuntimeException("Can't find the body of the \"get()\" method."));
+        final BlockStmt body = getResourcesMethod.getBody()
+                .orElseThrow(() -> new InvalidTemplateException(generator, "Can't find the body of the \"get()\" method."));
         final VariableDeclarator resourcePathsVariable =
-                getResourcesMethod.findFirst(VariableDeclarator.class).orElseThrow(() -> new RuntimeException("Can't find a variable declaration in the \"get()\" method."));
+                getResourcesMethod.findFirst(VariableDeclarator.class)
+                        .orElseThrow(() -> new InvalidTemplateException(generator, "Can't find a variable declaration in the \"get()\" method."));
 
         for (DMNResource resource : resources) {
             final MethodCallExpr add = new MethodCallExpr(resourcePathsVariable.getNameAsExpression(), "add");

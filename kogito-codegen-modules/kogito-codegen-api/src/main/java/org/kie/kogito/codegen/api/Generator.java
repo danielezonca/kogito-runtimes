@@ -30,6 +30,13 @@ public interface Generator {
 
     String CONFIG_PREFIX = "kogito.codegen.";
 
+    default void populateSymbolTable() {
+    }
+
+    default KogitoCodegenExceptions validate() {
+        return KogitoCodegenExceptions.of();
+    }
+
     /**
      * Returns the "section" of the Application class corresponding to rules.
      * e.g the processes() method with processes().createMyProcess() etc.

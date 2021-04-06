@@ -27,7 +27,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.kie.kogito.Application;
 import org.kie.kogito.codegen.AbstractCodegenTest;
 import org.kie.kogito.codegen.api.GeneratedFile;
-import org.kie.kogito.codegen.api.context.ContextAttributesConstants;
 import org.kie.kogito.codegen.api.context.KogitoBuildContext;
 import org.kie.kogito.codegen.api.io.CollectedResource;
 import org.kie.kogito.codegen.openapi.client.OpenApiClientCodegen;
@@ -46,7 +45,7 @@ public class OpenApiClientServerlessWorkflowTest extends AbstractCodegenTest {
         assertThat(openApiClientCodegen.getOpenAPISpecResources()).isNotEmpty();
         Collection<GeneratedFile> openApiGeneratedFiles = openApiClientCodegen.generate();
         assertThat(openApiGeneratedFiles).isNotEmpty();
-        assertThat(context.getContextAttribute(ContextAttributesConstants.OPENAPI_DESCRIPTORS, List.class)).isNotEmpty();
+        assertThat(context.getSymbolTable().getSymbolsFromType(openApiClientCodegen.name())).isNotEmpty();
         // Process Code Generation
         final ProcessCodegen processCodegen = ProcessCodegen.ofCollectedResources(context, resources);
         Collection<GeneratedFile> processGeneratedFiles = processCodegen.generate();

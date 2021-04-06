@@ -15,36 +15,36 @@
  */
 package org.kie.kogito.codegen.process.openapi;
 
-import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 import org.jbpm.compiler.canonical.descriptors.OpenApiTaskDescriptor;
 import org.jbpm.workflow.core.node.WorkItemNode;
 import org.kie.api.definition.process.Node;
-import org.kie.kogito.codegen.api.context.ContextAttributesConstants;
 import org.kie.kogito.codegen.api.context.KogitoBuildContext;
 import org.kie.kogito.codegen.openapi.client.OpenApiClientOperation;
 import org.kie.kogito.codegen.openapi.client.OpenApiSpecDescriptor;
 import org.kie.kogito.internal.process.runtime.KogitoWorkflowProcess;
+
+import static org.kie.kogito.codegen.api.utils.KogitoCodeGenConstants.OPENAPI_GENERATOR;
 
 /**
  * Responsible to apply the OpenApi implementation detail into the OpenApi {@link WorkItemNode}s defined in a given {@link KogitoWorkflowProcess}.
  */
 public class OpenApiClientWorkItemIntrospector {
 
-    private List<OpenApiSpecDescriptor> descriptors;
+    private Collection<OpenApiSpecDescriptor> descriptors;
 
-    @SuppressWarnings({ "unchecked" })
     public OpenApiClientWorkItemIntrospector(final KogitoBuildContext context) {
-        if (context == null) {
-            this.descriptors = new ArrayList<>();
-        } else {
-            this.descriptors = context.getContextAttribute(ContextAttributesConstants.OPENAPI_DESCRIPTORS, List.class);
-            if (this.descriptors == null) {
-                this.descriptors = new ArrayList<>();
-            }
-        }
+        this.descriptors = Optional.ofNullable(context)
+                .flatMap(c -> c.getSymbolTable().getSymbolsFromType(OPENAPI_GENERATOR))
+                .orElse(Collections.emptyMap())
+                .values().stream()
+                .map(OpenApiSpecDescriptor.class::cast)
+                .collect(Collectors.toList());
     }
 
     public void introspect(KogitoWorkflowProcess workFlowProcess) {

@@ -20,9 +20,6 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.text.MessageFormat;
 import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
@@ -32,6 +29,7 @@ import javax.lang.model.SourceVersion;
 
 import org.kie.kogito.codegen.api.AddonsConfig;
 import org.kie.kogito.codegen.api.context.KogitoBuildContext;
+import org.kie.kogito.codegen.api.context.KogitoSymbolTable;
 import org.kie.kogito.codegen.api.di.DependencyInjectionAnnotator;
 import org.kie.kogito.codegen.api.utils.AddonsConfigDiscovery;
 import org.kie.kogito.codegen.api.utils.AppPaths;
@@ -50,7 +48,7 @@ public abstract class AbstractKogitoBuildContext implements KogitoBuildContext {
     protected final ClassLoader classLoader;
     protected final AppPaths appPaths;
     protected final String contextName;
-    protected final Map<String, Object> contextAttributes;
+    protected final KogitoSymbolTable symbolTable;
 
     protected DependencyInjectionAnnotator dependencyInjectionAnnotator;
 
@@ -65,7 +63,7 @@ public abstract class AbstractKogitoBuildContext implements KogitoBuildContext {
         this.classLoader = builder.classLoader;
         this.appPaths = builder.appPaths;
         this.contextName = contextName;
-        this.contextAttributes = new HashMap<>();
+        this.symbolTable = new KogitoSymbolTable();
     }
 
     protected static Properties load(File... resourcePaths) {
@@ -138,25 +136,8 @@ public abstract class AbstractKogitoBuildContext implements KogitoBuildContext {
     }
 
     @Override
-    public Map<String, Object> getContextAttributes() {
-        return Collections.unmodifiableMap(contextAttributes);
-    }
-
-    @Override
-    public <T> T getContextAttribute(String key, Class<T> asClass) {
-        final Object output = this.contextAttributes.get(key);
-        if (output == null) {
-            return null;
-        }
-        if (asClass.isAssignableFrom(output.getClass())) {
-            return asClass.cast(output);
-        }
-        throw new AssertionError("Impossible to cast '" + key + "' key value as " + asClass.getName() + ", found " + output.getClass().getCanonicalName());
-    }
-
-    @Override
-    public void addContextAttribute(String key, Object value) {
-        this.contextAttributes.put(key, value);
+    public KogitoSymbolTable getSymbolTable() {
+        return symbolTable;
     }
 
     protected abstract static class AbstractBuilder implements Builder {

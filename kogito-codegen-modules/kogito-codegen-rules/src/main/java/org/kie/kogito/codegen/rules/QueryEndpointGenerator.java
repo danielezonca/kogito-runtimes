@@ -16,7 +16,6 @@
 package org.kie.kogito.codegen.rules;
 
 import java.util.Map;
-import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -26,6 +25,7 @@ import org.drools.modelcompiler.builder.QueryModel;
 import org.kie.internal.ruleunit.RuleUnitDescription;
 import org.kie.kogito.codegen.api.context.KogitoBuildContext;
 import org.kie.kogito.codegen.api.context.impl.JavaKogitoBuildContext;
+import org.kie.kogito.codegen.api.template.InvalidTemplateException;
 import org.kie.kogito.codegen.api.template.TemplatedGenerator;
 import org.kie.kogito.codegen.core.BodyDeclarationComparator;
 
@@ -137,14 +137,16 @@ public class QueryEndpointGenerator implements RuleFileGenerator {
 
         ClassOrInterfaceDeclaration clazz = cu
                 .findFirst(ClassOrInterfaceDeclaration.class)
-                .orElseThrow(() -> new NoSuchElementException("Compilation unit doesn't contain a class or interface declaration!"));
+                .orElseThrow(() -> new InvalidTemplateException(generator,
+                        "Compilation unit doesn't contain a class or interface declaration!"));
         clazz.setName(targetClassName);
 
         cu.findAll(StringLiteralExpr.class).forEach(this::interpolateStrings);
 
         FieldDeclaration ruleUnitDeclaration = clazz
                 .getFieldByName("ruleUnit")
-                .orElseThrow(() -> new NoSuchElementException("ClassOrInterfaceDeclaration doesn't contain a field named ruleUnit!"));
+                .orElseThrow(() -> new InvalidTemplateException(generator,
+                        "ClassOrInterfaceDeclaration doesn't contain a field named ruleUnit!"));
         setUnitGeneric(ruleUnitDeclaration.getElementType());
 
         String returnType = getReturnType(clazz);
@@ -175,14 +177,14 @@ public class QueryEndpointGenerator implements RuleFileGenerator {
 
         Statement statement = queryMethod
                 .getBody()
-                .orElseThrow(() -> new NoSuchElementException("A method declaration doesn't contain a body!"))
+                .orElseThrow(() -> new InvalidTemplateException(generator, "A method declaration doesn't contain a body!"))
                 .getStatement(0);
         statement.findAll(VariableDeclarator.class).forEach(decl -> setUnitGeneric(decl.getType()));
         statement.findAll(MethodCallExpr.class).forEach(m -> m.addArgument(hasDI ? "unitDTO" : "unitDTO.get()"));
 
         Statement returnStatement = queryMethod
                 .getBody()
-                .orElseThrow(() -> new NoSuchElementException("A method declaration doesn't contain a body!"))
+                .orElseThrow(() -> new InvalidTemplateException(generator, "A method declaration doesn't contain a body!"))
                 .getStatement(1);
         returnStatement.findAll(VariableDeclarator.class).forEach(decl -> setGeneric(decl.getType(), returnType));
         returnStatement.findAll(ClassExpr.class).forEach(expr -> expr.setType(queryClassName));
@@ -193,13 +195,13 @@ public class QueryEndpointGenerator implements RuleFileGenerator {
 
         Statement statementSingle = queryMethodSingle
                 .getBody()
-                .orElseThrow(() -> new NoSuchElementException("A method declaration doesn't contain a body!"))
+                .orElseThrow(() -> new InvalidTemplateException(generator, "A method declaration doesn't contain a body!"))
                 .getStatement(0);
         statementSingle.findAll(VariableDeclarator.class).forEach(decl -> setGeneric(decl.getType(), returnType));
 
         Statement returnMethodSingle = queryMethodSingle
                 .getBody()
-                .orElseThrow(() -> new NoSuchElementException("A method declaration doesn't contain a body!"))
+                .orElseThrow(() -> new InvalidTemplateException(generator, "A method declaration doesn't contain a body!"))
                 .getStatement(1);
         returnMethodSingle.findAll(VariableDeclarator.class).forEach(decl -> decl.setType(toNonPrimitiveType(returnType)));
 
@@ -212,9 +214,9 @@ public class QueryEndpointGenerator implements RuleFileGenerator {
         cu.addImport(new ImportDeclaration(new Name("org.kie.kogito.monitoring.core.common.system.metrics.SystemMetricsCollector"), false, false));
 
         for (MethodDeclaration md : methods) {
-            BlockStmt body = md.getBody().orElseThrow(() -> new NoSuchElementException("A method declaration doesn't contain a body!"));
+            BlockStmt body = md.getBody().orElseThrow(() -> new InvalidTemplateException(generator, "A method declaration doesn't contain a body!"));
             NodeList<Statement> statements = body.getStatements();
-            ReturnStmt returnStmt = body.findFirst(ReturnStmt.class).orElseThrow(() -> new NoSuchElementException("A method declaration doesn't contain a return statement!"));
+            ReturnStmt returnStmt = body.findFirst(ReturnStmt.class).orElseThrow(() -> new InvalidTemplateException(generator, "A method declaration doesn't contain a return statement!"));
             statements.addFirst(parseStatement("long startTime = System.nanoTime();"));
             statements.addBefore(parseStatement("long endTime = System.nanoTime();"), returnStmt);
             String endpoint = nameURL;

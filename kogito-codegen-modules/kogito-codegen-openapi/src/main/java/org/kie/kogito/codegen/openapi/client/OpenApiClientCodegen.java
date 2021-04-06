@@ -32,7 +32,6 @@ import java.util.stream.Stream;
 import org.drools.core.util.StringUtils;
 import org.kie.kogito.codegen.api.ApplicationSection;
 import org.kie.kogito.codegen.api.GeneratedFile;
-import org.kie.kogito.codegen.api.context.ContextAttributesConstants;
 import org.kie.kogito.codegen.api.context.KogitoBuildContext;
 import org.kie.kogito.codegen.api.io.CollectedResource;
 import org.kie.kogito.codegen.core.AbstractGenerator;
@@ -44,6 +43,7 @@ import org.slf4j.LoggerFactory;
 import io.serverlessworkflow.api.workflow.BaseWorkflow;
 
 import static java.util.stream.Collectors.toList;
+import static org.kie.kogito.codegen.api.utils.KogitoCodeGenConstants.OPENAPI_GENERATOR;
 
 /**
  * Entry point for the OpenAPIClient generator code.
@@ -58,8 +58,8 @@ public class OpenApiClientCodegen extends AbstractGenerator {
     private final List<OpenApiSpecDescriptor> openApiSpecDescriptors;
     private final GeneratedFileBuilder fileBuilder;
 
-    private OpenApiClientCodegen(KogitoBuildContext context, String name, List<OpenApiSpecDescriptor> openApiSpecDescriptors) {
-        super(context, name);
+    private OpenApiClientCodegen(KogitoBuildContext context, List<OpenApiSpecDescriptor> openApiSpecDescriptors) {
+        super(context, OPENAPI_GENERATOR);
         this.fileBuilder = new GeneratedFileBuilder(context);
         if (openApiSpecDescriptors == null) {
             this.openApiSpecDescriptors = Collections.emptyList();
@@ -86,7 +86,7 @@ public class OpenApiClientCodegen extends AbstractGenerator {
                         .map(workflow -> ServerlessWorkflowCodegenUtils.fromSWFunctions(workflow.getFunctions()))
                         .flatMap(Collection::stream)
                         .collect(toList());
-        return new OpenApiClientCodegen(context, "openapispecs", openApiSpecDescriptors);
+        return new OpenApiClientCodegen(context, openApiSpecDescriptors);
     }
 
     @Override
@@ -101,6 +101,13 @@ public class OpenApiClientCodegen extends AbstractGenerator {
     @Override
     public Optional<ApplicationSection> section() {
         return Optional.empty();
+    }
+
+    @Override
+    public void populateSymbolTable() {
+        for (OpenApiSpecDescriptor openApiSpecDescriptor : this.openApiSpecDescriptors) {
+            this.context().getSymbolTable().putSymbol(name(), openApiSpecDescriptor.getSymbolId(), openApiSpecDescriptor);
+        }
     }
 
     @Override
@@ -127,7 +134,6 @@ public class OpenApiClientCodegen extends AbstractGenerator {
                 this.cleanOpenApiGeneratorCode(openApiGeneratorOutputDir);
             }
         });
-        this.context().addContextAttribute(ContextAttributesConstants.OPENAPI_DESCRIPTORS, this.openApiSpecDescriptors);
         return generatedFiles;
     }
 

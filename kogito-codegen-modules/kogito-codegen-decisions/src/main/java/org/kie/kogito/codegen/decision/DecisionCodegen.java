@@ -108,6 +108,11 @@ public class DecisionCodegen extends AbstractGenerator {
     }
 
     @Override
+    public void populateSymbolTable() {
+        // FIXME to move logic here
+    }
+
+    @Override
     public List<GeneratedFile> generate() {
         if (cResources.isEmpty()) {
             return Collections.emptyList();

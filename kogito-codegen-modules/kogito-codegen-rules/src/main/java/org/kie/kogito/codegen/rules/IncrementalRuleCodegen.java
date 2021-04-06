@@ -118,7 +118,7 @@ public class IncrementalRuleCodegen extends AbstractGenerator {
     private final Collection<Resource> resources;
     private final List<RuleUnitGenerator> ruleUnitGenerators = new ArrayList<>();
 
-    private KieModuleModel kieModuleModel;
+    private final KieModuleModel kieModuleModel;
     private boolean hotReloadMode = false;
     private final boolean decisionTableSupported;
     private final Map<String, RuleUnitConfig> configs;
@@ -210,7 +210,7 @@ public class IncrementalRuleCodegen extends AbstractGenerator {
                     try {
                         return resourceProps.getInputStream();
                     } catch (IOException ioe) {
-                        throw new RuntimeException(ioe);
+                        throw new UncheckedIOException(ioe);
                     }
                 });
                 if (conf instanceof DecisionTableConfiguration) {

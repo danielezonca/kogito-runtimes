@@ -22,4 +22,5 @@ public class KogitoCodeGenConstants {
     }
 
     public static final String VALIDATION_CLASS = "javax.validation.constraints.NotNull";
+    public static final String OPENAPI_GENERATOR = "openapispecs";
 }

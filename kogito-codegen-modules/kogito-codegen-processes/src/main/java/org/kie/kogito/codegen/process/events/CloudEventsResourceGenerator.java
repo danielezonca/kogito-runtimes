@@ -18,11 +18,11 @@ package org.kie.kogito.codegen.process.events;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.NoSuchElementException;
 import java.util.stream.Collectors;
 
 import org.jbpm.compiler.canonical.TriggerMetaData;
 import org.kie.kogito.codegen.api.context.KogitoBuildContext;
+import org.kie.kogito.codegen.api.template.InvalidTemplateException;
 import org.kie.kogito.codegen.api.template.TemplatedGenerator;
 import org.kie.kogito.codegen.core.BodyDeclarationComparator;
 import org.kie.kogito.codegen.process.ProcessExecutableModelGenerator;
@@ -66,7 +66,7 @@ public class CloudEventsResourceGenerator extends AbstractEventResourceGenerator
         final CompilationUnit clazz = generator.compilationUnitOrThrow("Cannot generate CloudEvents REST Resource");
         final ClassOrInterfaceDeclaration template = clazz
                 .findFirst(ClassOrInterfaceDeclaration.class)
-                .orElseThrow(() -> new NoSuchElementException("Compilation unit doesn't contain a class or interface declaration!"));
+                .orElseThrow(() -> new InvalidTemplateException(generator, "Compilation unit doesn't contain a class or interface declaration!"));
         this.addInjection(template);
         template.getMembers().sort(new BodyDeclarationComparator());
         return clazz.toString();
